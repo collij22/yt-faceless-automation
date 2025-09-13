@@ -1,0 +1,403 @@
+{
+  "name": "YouTube Analytics",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "youtube-analytics",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook_in",
+      "name": "Webhook In",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Validate required fields\nconst required = ['video_id', 'lookback_days'];\nconst errors = [];\n\nfor (const field of required) {\n  if (!$input.item.json[field]) {\n    errors.push(`Missing required field: ${field}`);\n  }\n}\n\n// Validate lookback days\nif ($input.item.json.lookback_days && $input.item.json.lookback_days > 365) {\n  errors.push('Lookback days cannot exceed 365');\n}\n\n// Validate granularity\nconst validGranularities = ['daily', 'hourly', 'lifetime'];\nif ($input.item.json.granularity && !validGranularities.includes($input.item.json.granularity)) {\n  errors.push(`Invalid granularity. Must be one of: ${validGranularities.join(', ')}`);\n}\n\nif (errors.length > 0) {\n  throw new Error('Validation failed: ' + errors.join('; '));\n}\n\n// Set defaults\n$input.item.json.granularity = $input.item.json.granularity || 'daily';\n$input.item.json.metrics = $input.item.json.metrics || ['views', 'ctr', 'retention', 'revenue'];\n\nreturn $input.item;"
+      },
+      "id": "validate_payload",
+      "name": "Validate Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "resource": "analytics",
+        "operation": "get",
+        "videoId": "={{ $json.video_id }}",
+        "startDate": "={{ new Date(Date.now() - $json.lookback_days * 24 * 60 * 60 * 1000).toISOString().split('T')[0] }}",
+        "endDate": "={{ new Date().toISOString().split('T')[0] }}",
+        "metrics": "views,comments,likes,dislikes,shares,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,subscribersGained,subscribersLost",
+        "dimensions": "day",
+        "additionalFields": {}
+      },
+      "id": "fetch_basic_metrics",
+      "name": "Fetch Basic Metrics",
+      "type": "n8n-nodes-base.youtube",
+      "typeVersion": 1,
+      "position": [650, 200]
+    },
+    {
+      "parameters": {
+        "resource": "analytics",
+        "operation": "get",
+        "videoId": "={{ $json.video_id }}",
+        "startDate": "={{ new Date(Date.now() - $json.lookback_days * 24 * 60 * 60 * 1000).toISOString().split('T')[0] }}",
+        "endDate": "={{ new Date().toISOString().split('T')[0] }}",
+        "metrics": "views,impressions,impressionsClickThroughRate",
+        "dimensions": "insightTrafficSourceType",
+        "additionalFields": {}
+      },
+      "id": "fetch_traffic_sources",
+      "name": "Fetch Traffic Sources",
+      "type": "n8n-nodes-base.youtube",
+      "typeVersion": 1,
+      "position": [650, 350]
+    },
+    {
+      "parameters": {
+        "resource": "analytics",
+        "operation": "get",
+        "videoId": "={{ $json.video_id }}",
+        "startDate": "={{ new Date(Date.now() - $json.lookback_days * 24 * 60 * 60 * 1000).toISOString().split('T')[0] }}",
+        "endDate": "={{ new Date().toISOString().split('T')[0] }}",
+        "metrics": "views,estimatedMinutesWatched",
+        "dimensions": "country",
+        "sort": "-views",
+        "maxResults": 10,
+        "additionalFields": {}
+      },
+      "id": "fetch_geography",
+      "name": "Fetch Geography",
+      "type": "n8n-nodes-base.youtube",
+      "typeVersion": 1,
+      "position": [650, 500]
+    },
+    {
+      "parameters": {
+        "resource": "analytics",
+        "operation": "get",
+        "videoId": "={{ $json.video_id }}",
+        "startDate": "={{ new Date(Date.now() - $json.lookback_days * 24 * 60 * 60 * 1000).toISOString().split('T')[0] }}",
+        "endDate": "={{ new Date().toISOString().split('T')[0] }}",
+        "metrics": "audienceWatchRatio",
+        "dimensions": "elapsedVideoTimeRatio",
+        "additionalFields": {}
+      },
+      "id": "fetch_retention",
+      "name": "Fetch Retention Curve",
+      "type": "n8n-nodes-base.youtube",
+      "typeVersion": 1,
+      "position": [650, 650]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Process basic metrics\nconst basicMetrics = $node['Fetch Basic Metrics'].json;\nconst totalViews = basicMetrics.rows ? basicMetrics.rows.reduce((sum, row) => sum + (row[1] || 0), 0) : 0;\nconst totalImpressions = basicMetrics.rows ? basicMetrics.rows.reduce((sum, row) => sum + (row[9] || 0), 0) : 0;\nconst avgViewDuration = basicMetrics.rows ? basicMetrics.rows.reduce((sum, row) => sum + (row[7] || 0), 0) / basicMetrics.rows.length : 0;\nconst avgPercentViewed = basicMetrics.rows ? basicMetrics.rows.reduce((sum, row) => sum + (row[8] || 0), 0) / basicMetrics.rows.length : 0;\nconst watchTimeHours = basicMetrics.rows ? basicMetrics.rows.reduce((sum, row) => sum + (row[6] || 0), 0) / 60 : 0;\n\n// Calculate CTR (if we have impressions data)\nconst ctr = totalImpressions > 0 ? (totalViews / totalImpressions) * 100 : 0;\n\n// Process traffic sources\nconst trafficData = $node['Fetch Traffic Sources'].json;\nconst trafficSources = [];\nif (trafficData.rows) {\n  for (const row of trafficData.rows) {\n    trafficSources.push({\n      source: row[0] || 'unknown',\n      views: row[1] || 0,\n      ctr: row[3] ? row[3] * 100 : null,\n      avg_view_duration: null  // Would need separate query\n    });\n  }\n}\n\n// Process geography\nconst geoData = $node['Fetch Geography'].json;\nconst topGeographies = [];\nif (geoData.rows) {\n  for (const row of geoData.rows) {\n    topGeographies.push({\n      country: row[0] || 'unknown',\n      views: row[1] || 0,\n      avg_view_duration: row[2] ? row[2] * 60 : null  // Convert minutes to seconds\n    });\n  }\n}\n\n// Process retention curve\nconst retentionData = $node['Fetch Retention Curve'].json;\nconst retentionCurve = [];\nif (retentionData.rows) {\n  for (const row of retentionData.rows) {\n    const ratio = row[0] || 0;\n    const retention = row[1] || 0;\n    // Convert ratio to approximate seconds (assuming average video length)\n    const videoLengthEstimate = avgViewDuration / (avgPercentViewed / 100);\n    retentionCurve.push({\n      second: Math.round(ratio * videoLengthEstimate),\n      pct_viewing: retention * 100\n    });\n  }\n}\n\n// Build response\nreturn {\n  json: {\n    video_id: $node['Webhook In'].json.video_id,\n    time_window: {\n      start_iso: new Date(Date.now() - $node['Webhook In'].json.lookback_days * 24 * 60 * 60 * 1000).toISOString(),\n      end_iso: new Date().toISOString()\n    },\n    kpis: {\n      impressions: totalImpressions,\n      views: totalViews,\n      ctr: ctr,\n      avg_view_duration_sec: avgViewDuration,\n      avg_percentage_viewed: avgPercentViewed,\n      watch_time_hours: watchTimeHours\n    },\n    retention_curve: retentionCurve,\n    traffic_sources: trafficSources,\n    top_geographies: topGeographies\n  }\n};"
+      },
+      "id": "process_analytics",
+      "name": "Process Analytics Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 400]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Calculate performance score\nconst kpis = $input.item.json.kpis;\nlet score = 0;\n\n// CTR scoring (0-25 points)\nif (kpis.ctr >= 10) score += 25;\nelse if (kpis.ctr >= 7) score += 20;\nelse if (kpis.ctr >= 5) score += 15;\nelse if (kpis.ctr >= 3) score += 10;\nelse if (kpis.ctr >= 1) score += 5;\n\n// Average percentage viewed scoring (0-25 points)\nif (kpis.avg_percentage_viewed >= 70) score += 25;\nelse if (kpis.avg_percentage_viewed >= 60) score += 20;\nelse if (kpis.avg_percentage_viewed >= 50) score += 15;\nelse if (kpis.avg_percentage_viewed >= 40) score += 10;\nelse if (kpis.avg_percentage_viewed >= 30) score += 5;\n\n// View duration scoring (0-25 points)\nif (kpis.avg_view_duration_sec >= 300) score += 25;\nelse if (kpis.avg_view_duration_sec >= 240) score += 20;\nelse if (kpis.avg_view_duration_sec >= 180) score += 15;\nelse if (kpis.avg_view_duration_sec >= 120) score += 10;\nelse if (kpis.avg_view_duration_sec >= 60) score += 5;\n\n// Views scoring (0-25 points)\nif (kpis.views >= 10000) score += 25;\nelse if (kpis.views >= 5000) score += 20;\nelse if (kpis.views >= 1000) score += 15;\nelse if (kpis.views >= 500) score += 10;\nelse if (kpis.views >= 100) score += 5;\n\n$input.item.json.performance_score = score;\n\nreturn $input.item;"
+      },
+      "id": "calculate_score",
+      "name": "Calculate Performance Score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $node['Webhook In'].json.include_anomalies }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if_anomalies",
+      "name": "If Anomalies Requested",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1250, 400]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Detect anomalies\nconst anomalies = [];\nconst kpis = $input.item.json.kpis;\n\n// CTR anomaly detection\nif (kpis.ctr < 2.0) {\n  anomalies.push({\n    metric: 'ctr',\n    timestamp: new Date().toISOString(),\n    expected_value: 4.0,\n    actual_value: kpis.ctr,\n    severity: kpis.ctr < 1.0 ? 'high' : 'medium',\n    probable_cause: 'Thumbnail/title not resonating with audience'\n  });\n}\n\n// Retention anomaly detection\nif (kpis.avg_percentage_viewed < 40) {\n  anomalies.push({\n    metric: 'retention',\n    timestamp: new Date().toISOString(),\n    expected_value: 50.0,\n    actual_value: kpis.avg_percentage_viewed,\n    severity: kpis.avg_percentage_viewed < 30 ? 'high' : 'medium',\n    probable_cause: 'Content pacing or quality issues'\n  });\n}\n\n// Early drop-off detection\nif ($input.item.json.retention_curve && $input.item.json.retention_curve.length > 0) {\n  const first30s = $input.item.json.retention_curve.find(p => p.second >= 30);\n  if (first30s && first30s.pct_viewing < 70) {\n    anomalies.push({\n      metric: 'early_retention',\n      timestamp: new Date().toISOString(),\n      expected_value: 70.0,\n      actual_value: first30s.pct_viewing,\n      severity: 'high',\n      probable_cause: 'Weak hook - losing viewers in first 30 seconds'\n    });\n  }\n}\n\n$input.item.json.anomalies = anomalies;\n\nreturn $input.item;"
+      },
+      "id": "detect_anomalies",
+      "name": "Detect Anomalies",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1450, 350]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $node['Webhook In'].json.include_predictions }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if_predictions",
+      "name": "If Predictions Requested",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1650, 400]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Generate predictions based on current performance\nconst kpis = $input.item.json.kpis;\nconst currentViews = kpis.views;\nconst daysAnalyzed = $node['Webhook In'].json.lookback_days;\nconst avgDailyViews = currentViews / daysAnalyzed;\n\n// Simple linear projection with decay factor\nconst decayFactor = 0.95; // Views typically decay over time\nconst views7d = Math.round(avgDailyViews * 7 * decayFactor);\nconst views30d = Math.round(avgDailyViews * 30 * Math.pow(decayFactor, 2));\n\n// Estimate revenue based on RPM\nconst estimatedRPM = 2.5; // Default RPM, would be calculated from actual data\nconst revenue30d = (views30d / 1000) * estimatedRPM;\n\n// Calculate confidence based on data quality\nlet confidence = 0.5; // Base confidence\nif (currentViews > 1000) confidence += 0.2;\nif (daysAnalyzed >= 7) confidence += 0.2;\nif (kpis.ctr > 3) confidence += 0.1;\n\n// Identify key factors\nconst factors = [];\nif (kpis.ctr > 5) factors.push('High CTR driving discovery');\nif (kpis.avg_percentage_viewed > 60) factors.push('Strong retention signals');\nif ($input.item.json.traffic_sources) {\n  const browseTraffic = $input.item.json.traffic_sources.find(s => s.source === 'BROWSE');\n  if (browseTraffic && browseTraffic.views > currentViews * 0.4) {\n    factors.push('Strong browse feature performance');\n  }\n}\n\n$input.item.json.predictions = {\n  views_7d: views7d,\n  views_30d: views30d,\n  revenue_30d: revenue30d,\n  confidence: Math.min(confidence, 1.0),\n  factors: factors\n};\n\nreturn $input.item;"
+      },
+      "id": "generate_predictions",
+      "name": "Generate Predictions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1850, 350]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Add engagement analysis\nconst retentionCurve = $input.item.json.retention_curve || [];\nconst engagementAnalysis = {\n  peak_engagement_times: [],\n  drop_off_points: [],\n  replay_segments: [],\n  engagement_score: 0\n};\n\n// Find peak engagement times\nfor (let i = 1; i < retentionCurve.length - 1; i++) {\n  const prev = retentionCurve[i - 1];\n  const curr = retentionCurve[i];\n  const next = retentionCurve[i + 1];\n  \n  // Local maximum\n  if (curr.pct_viewing > prev.pct_viewing && curr.pct_viewing > next.pct_viewing) {\n    engagementAnalysis.peak_engagement_times.push([curr.second, curr.pct_viewing]);\n  }\n  \n  // Significant drop-off (>10% drop)\n  if (prev.pct_viewing - curr.pct_viewing > 10) {\n    let reason = 'Unknown';\n    if (curr.second < 10) reason = 'Weak opening';\n    else if (curr.second < 30) reason = 'Hook not engaging';\n    else if (curr.second < 60) reason = 'Content mismatch';\n    else reason = 'Pacing issue';\n    \n    engagementAnalysis.drop_off_points.push([\n      curr.second,\n      prev.pct_viewing - curr.pct_viewing,\n      reason\n    ]);\n  }\n}\n\n// Calculate engagement score\nconst avgRetention = retentionCurve.reduce((sum, p) => sum + p.pct_viewing, 0) / (retentionCurve.length || 1);\nengagementAnalysis.engagement_score = Math.min(avgRetention, 100);\n\n$input.item.json.engagement_patterns = engagementAnalysis;\n\n// Add monetization metrics\n$input.item.json.monetization_metrics = {\n  estimated_revenue: ($input.item.json.kpis.views / 1000) * 2.5, // Estimated RPM of $2.50\n  rpm: 2.5,\n  cpm: 1.5,\n  ad_impressions: Math.round($input.item.json.kpis.views * 0.7), // Assume 70% see ads\n  ad_click_rate: 0.02, // Industry average\n  viewer_demographics: {} // Would need separate API call\n};\n\nreturn $input.item;"
+      },
+      "id": "add_engagement_metrics",
+      "name": "Add Engagement Metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2050, 400]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "multiplex",
+        "options": {}
+      },
+      "id": "merge_all",
+      "name": "Merge All Data",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [2250, 400]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "respond_webhook",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2450, 400]
+    }
+  ],
+  "connections": {
+    "Webhook In": {
+      "main": [
+        [
+          {
+            "node": "Validate Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Payload": {
+      "main": [
+        [
+          {
+            "node": "Fetch Basic Metrics",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Traffic Sources",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Geography",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Retention Curve",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Basic Metrics": {
+      "main": [
+        [
+          {
+            "node": "Process Analytics Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Traffic Sources": {
+      "main": [
+        [
+          {
+            "node": "Process Analytics Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Geography": {
+      "main": [
+        [
+          {
+            "node": "Process Analytics Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Retention Curve": {
+      "main": [
+        [
+          {
+            "node": "Process Analytics Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Analytics Data": {
+      "main": [
+        [
+          {
+            "node": "Calculate Performance Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Performance Score": {
+      "main": [
+        [
+          {
+            "node": "If Anomalies Requested",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Anomalies Requested": {
+      "main": [
+        [
+          {
+            "node": "Detect Anomalies",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If Predictions Requested",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect Anomalies": {
+      "main": [
+        [
+          {
+            "node": "If Predictions Requested",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Predictions Requested": {
+      "main": [
+        [
+          {
+            "node": "Generate Predictions",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Add Engagement Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Predictions": {
+      "main": [
+        [
+          {
+            "node": "Add Engagement Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Engagement Metrics": {
+      "main": [
+        [
+          {
+            "node": "Merge All Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge All Data": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "instanceId": "youtube-analytics"
+  },
+  "tags": []
+}

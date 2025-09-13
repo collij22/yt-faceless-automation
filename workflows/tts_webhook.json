@@ -1,0 +1,7 @@
+{
+  "name": "TTS Webhook",
+  "nodes": [
+    {"parameters": {"httpMethod": "POST", "path": "tts"}, "name": "Webhook", "type": "n8n-nodes-base.webhook"}
+  ],
+  "connections": {}
+}

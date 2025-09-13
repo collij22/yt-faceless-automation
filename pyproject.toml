@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling>=1.25.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "yt-faceless"
+version = "0.1.0"
+description = "Faceless YouTube automation with Claude subagents, MCP, n8n, and Python 3.12"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+  { name = "Your Name", email = "you@example.com" }
+]
+license = { text = "MIT" }
+dependencies = [
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2",
+  "black==24.8.0",
+  "isort>=5.13.2",
+  "mypy>=1.10.0"
+]
+schemas = ["pydantic>=2.5.0"]
+network = ["requests>=2.31.0", "aiohttp>=3.9.0"]
+
+[project.scripts]
+ytfaceless = "yt_faceless.cli:main"
+
+[tool.black]
+line-length = 88
+target-version = ["py312"]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]

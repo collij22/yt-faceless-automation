@@ -1,0 +1,686 @@
+{
+  "name": "YouTube Upload Enhanced",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "youtube-upload",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook_in",
+      "name": "Webhook In",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Set timestamp for duration calculation\n$input.item.json.timestamp = Date.now();\n\n// Check for action-based routing\nif ($input.item.json.action) {\n  return {\n    json: {\n      ...$input.item.json,\n      timestamp: $input.item.json.timestamp,\n      route: $input.item.json.action\n    }\n  };\n}\n\n// Default to upload route\nreturn {\n  json: {\n    ...$input.item.json,\n    timestamp: $input.item.json.timestamp,\n    route: 'upload'\n  }\n};"
+      },
+      "id": "set_timestamp_route",
+      "name": "Set Timestamp & Route",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [350, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.route }}",
+              "operation": "equals",
+              "value2": "upload"
+            }
+          ]
+        }
+      },
+      "id": "route_upload",
+      "name": "Route: Upload",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [500, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.route }}",
+              "operation": "equals",
+              "value2": "check_status"
+            }
+          ]
+        }
+      },
+      "id": "route_check_status",
+      "name": "Route: Check Status",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [500, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.route }}",
+              "operation": "equals",
+              "value2": "update_metadata"
+            }
+          ]
+        }
+      },
+      "id": "route_update_metadata",
+      "name": "Route: Update Metadata",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [500, 600]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Validate required fields for upload\nconst required = ['video_path', 'title', 'description', 'transaction_id', 'slug', 'checksum_sha256'];\nconst errors = [];\n\nfor (const field of required) {\n  if (!$input.item.json[field]) {\n    errors.push(`Missing required field: ${field}`);\n  }\n}\n\n// Validate quality gates if present\nif ($input.item.json.quality_gates) {\n  const gates = $input.item.json.quality_gates;\n  if (gates.copyright_check_passed === false) {\n    errors.push('Copyright check failed');\n  }\n  if (gates.profanity_check_passed === false) {\n    errors.push('Profanity check failed');\n  }\n}\n\n// Validate title length\nif ($input.item.json.title && $input.item.json.title.length > 100) {\n  errors.push('Title exceeds 100 characters');\n}\n\n// Validate description length\nif ($input.item.json.description && $input.item.json.description.length > 5000) {\n  errors.push('Description exceeds 5000 characters');\n}\n\n// Validate tags\nif ($input.item.json.tags) {\n  const combinedTags = $input.item.json.tags.join(',');\n  if (combinedTags.length > 500) {\n    errors.push(`Combined tags length (${combinedTags.length}) exceeds 500 characters`);\n  }\n}\n\nif (errors.length > 0) {\n  throw new Error('Validation failed: ' + errors.join('; '));\n}\n\nreturn $input.item;"
+      },
+      "id": "validate_payload",
+      "name": "Validate Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT video_id, upload_time FROM uploads WHERE transaction_id = '{{ $json.transaction_id }}' OR (slug = '{{ $json.slug }}' AND checksum = '{{ $json.checksum_sha256 }}') LIMIT 1;",
+        "options": {}
+      },
+      "id": "check_idempotency",
+      "name": "Check Idempotency",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [900, 200],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Map Postgres result to json for IF node\n// Handle various DB response shapes robustly\n\nconst previousData = $node['Route: Upload'].json;\nconst postgresResult = $input.item.json;\n\n// Check if we got a valid result from Postgres\nlet existingVideo = null;\n\n// Handle array result from executeQuery\nif (Array.isArray(postgresResult) && postgresResult.length > 0) {\n  existingVideo = postgresResult[0];\n}\n// Handle single object result\nelse if (postgresResult && typeof postgresResult === 'object' && postgresResult.video_id) {\n  existingVideo = postgresResult;\n}\n// Handle error or empty result from DB\nelse if (postgresResult && postgresResult.error) {\n  console.log('DB error, proceeding as new upload:', postgresResult.error);\n}\n\n// If we found an existing video\nif (existingVideo && existingVideo.video_id) {\n  return {\n    json: {\n      ...previousData,\n      video_id: existingVideo.video_id,\n      upload_time: existingVideo.upload_time,\n      already_exists: true\n    }\n  };\n}\n\n// New upload (or DB failure - proceed anyway)\nreturn {\n  json: {\n    ...previousData,\n    already_exists: false\n  }\n};"
+      },
+      "id": "map_idempotency_result",
+      "name": "Map Idempotency Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.already_exists }}",
+              "operation": "equal",
+              "value2": false
+            }
+          ]
+        }
+      },
+      "id": "if_new_upload",
+      "name": "If New Upload",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1300, 200]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Return existing upload info\nreturn {\n  json: {\n    execution_id: $execution.id,\n    video_id: $input.item.json.video_id,\n    status: 'already_uploaded',\n    transaction_id: $input.item.json.transaction_id,\n    upload_duration_ms: 0,\n    message: 'Video already uploaded with same checksum (idempotency check)'\n  }\n};"
+      },
+      "id": "return_existing",
+      "name": "Return Existing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1500, 350]
+    },
+    {
+      "parameters": {
+        "filePath": "={{ $json.video_path }}",
+        "dataPropertyName": "videoFile"
+      },
+      "id": "read_video_file",
+      "name": "Read Video File",
+      "type": "n8n-nodes-base.readBinaryFile",
+      "typeVersion": 1,
+      "position": [1500, 100]
+    },
+    {
+      "parameters": {
+        "resource": "video",
+        "operation": "upload",
+        "title": "={{ $json.title }}",
+        "description": "={{ $json.description }}",
+        "tags": "={{ $json.tags.join(',') }}",
+        "categoryId": "={{ $json.category_id || 28 }}",
+        "privacyStatus": "={{ $json.privacy_status || 'private' }}",
+        "binaryPropertyName": "videoFile",
+        "additionalFields": {
+          "defaultLanguage": "={{ $json.language || 'en' }}",
+          "notifySubscribers": "={{ $json.notify_subscribers !== false }}",
+          "publishAt": "={{ $json.publish_at_iso }}",
+          "forKids": "={{ $json.made_for_kids || false }}",
+          "embeddable": true,
+          "publicStatsViewable": true
+        }
+      },
+      "id": "upload_video",
+      "name": "Upload Video",
+      "type": "n8n-nodes-base.youtube",
+      "typeVersion": 1,
+      "position": [1700, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.thumbnail_path }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "if_thumbnail",
+      "name": "If Thumbnail",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1900, 100]
+    },
+    {
+      "parameters": {
+        "filePath": "={{ $json.thumbnail_path }}",
+        "dataPropertyName": "thumbnail"
+      },
+      "id": "read_thumbnail",
+      "name": "Read Thumbnail",
+      "type": "n8n-nodes-base.readBinaryFile",
+      "typeVersion": 1,
+      "position": [2100, 50]
+    },
+    {
+      "parameters": {
+        "resource": "video",
+        "operation": "thumbnail",
+        "videoId": "={{ $node['Upload Video'].json.id }}",
+        "binaryPropertyName": "thumbnail"
+      },
+      "id": "upload_thumbnail",
+      "name": "Upload Thumbnail",
+      "type": "n8n-nodes-base.youtube",
+      "typeVersion": 1,
+      "position": [2300, 50]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Process chapters\nconst uploadData = $json; // Contains all original upload data\nconst videoData = $node['Upload Video'].json;\nlet description = uploadData.description || '';\nconst chapters = uploadData.chapters;\n\nlet chaptersText = '';\nif (chapters && chapters.length > 0) {\n  // Format chapters for YouTube\n  chaptersText = '\\n\\nChapters:\\n' + chapters.map(ch => `${ch.start} ${ch.title}`).join('\\n');\n}\n\n// Handle monetization settings\nconst monetization = uploadData.monetization_settings;\nconst monetizationApplied = monetization && monetization.enable_ads;\n\nreturn {\n  json: {\n    // Pass through all original data\n    ...uploadData,\n    // Add processed fields\n    video_id: videoData.id,\n    video_url: videoData.url || `https://youtube.com/watch?v=${videoData.id}`,\n    chapters_added: chapters ? chapters.length : 0,\n    chapters_text: chaptersText,\n    full_description: description + chaptersText,\n    monetization_enabled: monetizationApplied,\n    needs_description_update: chapters && chapters.length > 0\n  }\n};"
+      },
+      "id": "process_metadata",
+      "name": "Process Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2100, 150]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.needs_description_update }}",
+              "operation": "equal",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if_update_description",
+      "name": "If Update Description",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2300, 150]
+    },
+    {
+      "parameters": {
+        "resource": "video",
+        "operation": "update",
+        "videoId": "={{ $json.video_id }}",
+        "updateFields": {
+          "description": "={{ $json.full_description }}"
+        }
+      },
+      "id": "update_description",
+      "name": "Update Description",
+      "type": "n8n-nodes-base.youtube",
+      "typeVersion": 1,
+      "position": [2500, 100]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "uploads",
+        "columns": "transaction_id,slug,video_id,checksum,upload_time,status,metadata",
+        "values": "={{ $json.transaction_id }},={{ $json.slug }},={{ $node['Upload Video'].json.id }},={{ $json.checksum_sha256 }},={{ Date.now() }},={{ $json.publish_at_iso ? 'scheduled' : 'uploaded' }},={{ JSON.stringify($json) }}"
+      },
+      "id": "store_upload",
+      "name": "Store Upload Record",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [2700, 150],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Calculate quality scores\nconst scores = {\n  title_score: 0,\n  description_score: 0,\n  tags_score: 0,\n  thumbnail_score: 0,\n  overall_score: 0\n};\n\n// Title scoring\nif ($json.title) {\n  if ($json.title.length >= 60) scores.title_score += 30;\n  if ($json.title.match(/[0-9]/)) scores.title_score += 20; // Contains numbers\n  if ($json.title.match(/[A-Z]/)) scores.title_score += 20; // Has capitals\n  if (!$json.title.includes('untitled')) scores.title_score += 30;\n}\n\n// Description scoring\nif ($json.description) {\n  if ($json.description.length >= 200) scores.description_score += 40;\n  if ($json.description.includes('http')) scores.description_score += 20; // Has links\n  if ($json.chapters && $json.chapters.length > 0) scores.description_score += 40;\n}\n\n// Tags scoring\nif ($json.tags && $json.tags.length >= 5) {\n  scores.tags_score = Math.min(100, $json.tags.length * 10);\n}\n\n// Thumbnail scoring\nif ($json.thumbnail_path) {\n  scores.thumbnail_score = 100;\n}\n\n// Calculate overall\nscores.overall_score = Math.round(\n  (scores.title_score + scores.description_score + scores.tags_score + scores.thumbnail_score) / 4\n);\n\nreturn {\n  json: {\n    quality_scores: scores,\n    video_id: $node['Upload Video'].json.id\n  }\n};"
+      },
+      "id": "calculate_quality",
+      "name": "Calculate Quality Scores",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2900, 150]
+    },
+    {
+      "parameters": {
+        "values": {
+          "number": [
+            {
+              "name": "upload_duration_ms",
+              "value": "={{ Date.now() - $node['Set Timestamp & Route'].json.timestamp }}"
+            }
+          ],
+          "string": [
+            {
+              "name": "execution_id",
+              "value": "={{ $execution.id }}"
+            },
+            {
+              "name": "video_id",
+              "value": "={{ $node['Upload Video'].json.id }}"
+            },
+            {
+              "name": "video_url",
+              "value": "={{ $node['Upload Video'].json.url || 'https://youtube.com/watch?v=' + $node['Upload Video'].json.id }}"
+            },
+            {
+              "name": "status",
+              "value": "={{ $json.publish_at_iso ? 'scheduled' : 'uploaded' }}"
+            },
+            {
+              "name": "transaction_id",
+              "value": "={{ $json.transaction_id }}"
+            }
+          ],
+          "boolean": [
+            {
+              "name": "monetization_enabled",
+              "value": "={{ $node['Process Metadata'].json.monetization_enabled }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "prepare_response",
+      "name": "Prepare Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [3100, 150]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Merge quality scores into response\nreturn {\n  json: {\n    ...$node['Prepare Response'].json,\n    ...$node['Calculate Quality Scores'].json,\n    message: 'Video uploaded successfully',\n    scheduled_for: $node['If New Upload'].json.publish_at_iso || null\n  }\n};"
+      },
+      "id": "final_response",
+      "name": "Final Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3300, 150]
+    },
+    {
+      "parameters": {
+        "resource": "video",
+        "operation": "get",
+        "videoId": "={{ $json.video_id }}",
+        "part": "status,snippet"
+      },
+      "id": "check_video_status",
+      "name": "Check Video Status",
+      "type": "n8n-nodes-base.youtube",
+      "typeVersion": 1,
+      "position": [700, 400]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Format status response\nconst video = $input.item.json;\n\nreturn {\n  json: {\n    video_id: $node['Route: Check Status'].json.video_id,\n    status: video.status.uploadStatus,\n    privacy_status: video.status.privacyStatus,\n    title: video.snippet.title,\n    published_at: video.snippet.publishedAt,\n    view_count: video.statistics?.viewCount || 0,\n    like_count: video.statistics?.likeCount || 0\n  }\n};"
+      },
+      "id": "format_status_response",
+      "name": "Format Status Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "resource": "video",
+        "operation": "update",
+        "videoId": "={{ $json.video_id }}",
+        "updateFields": {
+          "title": "={{ $json.metadata?.title || $json.title }}",
+          "description": "={{ $json.metadata?.description || $json.description }}",
+          "tags": "={{ $json.metadata?.tags ? $json.metadata.tags.join(',') : ($json.tags ? $json.tags.join(',') : '') }}",
+          "categoryId": "={{ $json.metadata?.category_id || $json.category_id }}"
+        }
+      },
+      "id": "update_video_metadata",
+      "name": "Update Video Metadata",
+      "type": "n8n-nodes-base.youtube",
+      "typeVersion": 1,
+      "position": [700, 600]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Format update response\nreturn {\n  json: {\n    video_id: $json.video_id,\n    status: 'metadata_updated',\n    updated_fields: Object.keys($node['Route: Update Metadata'].json).filter(k => k !== 'video_id' && k !== 'action')\n  }\n};"
+      },
+      "id": "format_update_response",
+      "name": "Format Update Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 600]
+    }
+  ],
+  "connections": {
+    "webhook_in": {
+      "main": [
+        [
+          {
+            "node": "set_timestamp_route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "set_timestamp_route": {
+      "main": [
+        [
+          {
+            "node": "route_upload",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "route_check_status",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "route_update_metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "route_upload": {
+      "main": [
+        [
+          {
+            "node": "validate_payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "route_check_status": {
+      "main": [
+        [
+          {
+            "node": "check_video_status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "route_update_metadata": {
+      "main": [
+        [
+          {
+            "node": "update_video_metadata",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "validate_payload": {
+      "main": [
+        [
+          {
+            "node": "check_idempotency",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check_idempotency": {
+      "main": [
+        [
+          {
+            "node": "map_idempotency_result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "map_idempotency_result": {
+      "main": [
+        [
+          {
+            "node": "if_new_upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "if_new_upload": {
+      "main": [
+        [
+          {
+            "node": "read_video_file",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "return_existing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read_video_file": {
+      "main": [
+        [
+          {
+            "node": "upload_video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "upload_video": {
+      "main": [
+        [
+          {
+            "node": "if_thumbnail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "if_thumbnail": {
+      "main": [
+        [
+          {
+            "node": "read_thumbnail",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "process_metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read_thumbnail": {
+      "main": [
+        [
+          {
+            "node": "upload_thumbnail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "upload_thumbnail": {
+      "main": [
+        [
+          {
+            "node": "process_metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "process_metadata": {
+      "main": [
+        [
+          {
+            "node": "if_update_description",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "if_update_description": {
+      "main": [
+        [
+          {
+            "node": "update_description",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "store_upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "update_description": {
+      "main": [
+        [
+          {
+            "node": "store_upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "store_upload": {
+      "main": [
+        [
+          {
+            "node": "calculate_quality",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "calculate_quality": {
+      "main": [
+        [
+          {
+            "node": "prepare_response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "prepare_response": {
+      "main": [
+        [
+          {
+            "node": "final_response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check_video_status": {
+      "main": [
+        [
+          {
+            "node": "format_status_response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "update_video_metadata": {
+      "main": [
+        [
+          {
+            "node": "format_update_response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "errorWorkflow": "error_handler"
+  }
+}
