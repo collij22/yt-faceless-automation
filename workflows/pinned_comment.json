@@ -1,0 +1,178 @@
+{
+  "name": "Pinned Comment Manager",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pin-comment",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "pin-comment-webhook"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract parameters\nconst videoId = items[0].json.video_id;\nconst commentText = items[0].json.comment_text;\n\n// Validate inputs\nif (!videoId || !commentText) {\n  throw new Error('Missing required parameters: video_id and comment_text');\n}\n\n// Format comment text (ensure it's not too long)\nlet formattedComment = commentText;\nif (formattedComment.length > 10000) {\n  formattedComment = formattedComment.substring(0, 9997) + '...';\n}\n\nreturn {\n  videoId,\n  commentText: formattedComment,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/youtube/v3/commentThreads",
+        "method": "POST",
+        "authentication": "oAuth2",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "part",
+              "value": "snippet"
+            },
+            {
+              "name": "snippet",
+              "value": {
+                "videoId": "={{ $json.videoId }}",
+                "topLevelComment": {
+                  "snippet": {
+                    "textOriginal": "={{ $json.commentText }}"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "name": "Post Comment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract comment ID from response\nconst commentId = items[0].json.id;\nconst videoId = items[0].json.snippet?.videoId || items[0].json.videoId;\n\nif (!commentId) {\n  throw new Error('Failed to create comment - no comment ID returned');\n}\n\nreturn {\n  commentId,\n  videoId,\n  action: 'pin'\n};"
+      },
+      "name": "Extract Comment ID",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/youtube/v3/comments/setModerationStatus",
+        "method": "POST",
+        "authentication": "oAuth2",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "={{ $json.commentId }}"
+            },
+            {
+              "name": "moderationStatus",
+              "value": "published"
+            },
+            {
+              "name": "banAuthor",
+              "value": false
+            }
+          ]
+        }
+      },
+      "name": "Pin Comment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "success"
+            },
+            {
+              "name": "comment_id",
+              "value": "={{ $json.commentId }}"
+            },
+            {
+              "name": "video_id",
+              "value": "={{ $json.videoId }}"
+            },
+            {
+              "name": "message",
+              "value": "Comment posted and pinned successfully"
+            }
+          ]
+        }
+      },
+      "name": "Success Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "error"
+            },
+            {
+              "name": "error",
+              "value": "={{ $json.error.message || 'Failed to pin comment' }}"
+            }
+          ]
+        }
+      },
+      "name": "Error Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [1250, 500]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{"node": "Validate Input", "type": "main", "index": 0}]]
+    },
+    "Validate Input": {
+      "main": [[{"node": "Post Comment", "type": "main", "index": 0}]]
+    },
+    "Post Comment": {
+      "main": [[{"node": "Extract Comment ID", "type": "main", "index": 0}]]
+    },
+    "Extract Comment ID": {
+      "main": [[{"node": "Pin Comment", "type": "main", "index": 0}]]
+    },
+    "Pin Comment": {
+      "main": [[{"node": "Success Response", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "error-handler"
+  },
+  "staticData": null,
+  "meta": {
+    "instanceId": "pinned-comment-manager"
+  },
+  "tags": []
+}

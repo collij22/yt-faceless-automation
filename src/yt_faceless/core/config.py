@@ -65,7 +65,20 @@ class WebhookConfig:
     analytics_url: str
     asset_url: Optional[str] = None
     error_url: Optional[str] = None
-    
+    # Phase 8 webhooks
+    shortener_url: Optional[str] = None
+    crosspost_url: Optional[str] = None
+    localization_url: Optional[str] = None
+    pin_comment_url: Optional[str] = None
+    revenue_track_url: Optional[str] = None
+    # Additional Phase 8 webhooks
+    tiktok_upload_url: Optional[str] = None
+    instagram_upload_url: Optional[str] = None
+    x_upload_url: Optional[str] = None
+    translation_url: Optional[str] = None
+    moderation_url: Optional[str] = None
+    scheduled_upload_url: Optional[str] = None
+
     def validate(self) -> list[str]:
         """Validate webhook URLs."""
         issues = []
@@ -75,6 +88,11 @@ class WebhookConfig:
             ("Analytics", self.analytics_url),
             ("Asset", self.asset_url),
             ("Error", self.error_url),
+            ("Shortener", self.shortener_url),
+            ("Crosspost", self.crosspost_url),
+            ("Localization", self.localization_url),
+            ("Pin Comment", self.pin_comment_url),
+            ("Revenue Track", self.revenue_track_url),
         ]:
             if url:
                 parsed = urlparse(url)
@@ -285,6 +303,11 @@ class AppConfig:
         "ab_testing": False,
         "shorts_generation": False,
         "multi_language": False,
+        # Phase 8 features
+        "affiliate_injection": True,
+        "sponsorships": True,
+        "multiplatform_distribution": False,
+        "calendar_enabled": True,
     })
     
     # Environment settings
@@ -395,6 +418,19 @@ def load_config() -> AppConfig:
         analytics_url=os.getenv("YOUTUBE_ANALYTICS_WEBHOOK_URL", ""),
         asset_url=os.getenv("N8N_ASSET_WEBHOOK_URL"),
         error_url=os.getenv("N8N_ERROR_WEBHOOK_URL"),
+        # Phase 8 webhooks
+        shortener_url=os.getenv("N8N_SHORTENER_WEBHOOK_URL"),
+        crosspost_url=os.getenv("N8N_CROSSPOST_WEBHOOK_URL"),
+        localization_url=os.getenv("N8N_LOCALIZATION_WEBHOOK_URL"),
+        pin_comment_url=os.getenv("N8N_PIN_COMMENT_WEBHOOK_URL"),
+        revenue_track_url=os.getenv("N8N_REVENUE_TRACK_WEBHOOK_URL"),
+        # Additional Phase 8 webhooks
+        tiktok_upload_url=os.getenv("TIKTOK_UPLOAD_WEBHOOK_URL"),
+        instagram_upload_url=os.getenv("INSTAGRAM_UPLOAD_WEBHOOK_URL"),
+        x_upload_url=os.getenv("X_UPLOAD_WEBHOOK_URL"),
+        translation_url=os.getenv("TRANSLATION_WEBHOOK_URL"),
+        moderation_url=os.getenv("MODERATION_WEBHOOK_URL"),
+        scheduled_upload_url=os.getenv("SCHEDULED_UPLOAD_WEBHOOK_URL"),
     )
     
     # Validate required webhooks
@@ -479,8 +515,13 @@ def load_config() -> AppConfig:
         "auto_subtitles": os.getenv("FEATURE_AUTO_SUBTITLES", "true").lower() == "true",
         "auto_endscreen": os.getenv("FEATURE_AUTO_ENDSCREEN", "true").lower() == "true",
         "ab_testing": os.getenv("FEATURE_AB_TESTING", "false").lower() == "true",
-        "shorts_generation": os.getenv("FEATURE_SHORTS_GENERATION", "false").lower() == "true",
+        "shorts_generation": os.getenv("FEATURE_SHORTS_GENERATION", "true").lower() == "true",
         "multi_language": os.getenv("FEATURE_MULTI_LANGUAGE", "false").lower() == "true",
+        # Phase 8 features
+        "affiliate_injection": os.getenv("FEATURE_AFFILIATE_INJECTION", "true").lower() == "true",
+        "sponsorships": os.getenv("FEATURE_SPONSORSHIPS", "true").lower() == "true",
+        "multiplatform_distribution": os.getenv("FEATURE_MULTIPLATFORM_DISTRIBUTION", "false").lower() == "true",
+        "calendar_enabled": os.getenv("FEATURE_CALENDAR_ENABLED", "true").lower() == "true",
     }
     
     # Create config object

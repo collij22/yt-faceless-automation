@@ -585,3 +585,306 @@ class ExperimentResult(BaseModel):
     analysis: Optional[dict[str, Any]] = None
     error: Optional[str] = None
     failure_reason: Optional[str] = None
+
+
+# Phase 8: Monetization Expansion & Scale Schemas
+
+class AffiliatePlacementPosition(str, Enum):
+    """Placement positions for affiliate links."""
+    DESCRIPTION = "description"
+    COMMENT_PINNED = "comment_pinned"
+    CARD = "card"
+    END_SCREEN = "end_screen"
+
+
+class RevenueSource(str, Enum):
+    """Sources of revenue."""
+    YOUTUBE = "youtube"
+    AFFILIATE = "affiliate"
+    SPONSOR = "sponsor"
+    MERCHANDISE = "merchandise"
+    MEMBERSHIP = "membership"
+
+
+class PlatformTarget(str, Enum):
+    """Target platforms for distribution."""
+    YOUTUBE_SHORTS = "youtube_shorts"
+    TIKTOK = "tiktok"
+    INSTAGRAM_REELS = "instagram_reels"
+    X = "x"
+    FACEBOOK = "facebook"
+    SNAPCHAT = "snapchat"
+
+
+class AffiliateProgram(BaseModel):
+    """Affiliate program configuration."""
+    name: str
+    base_url: str
+    utm_defaults: dict[str, str] = Field(default_factory=dict)
+    shorten: bool = False
+    commission_rate: Optional[float] = None
+    cookie_duration_days: Optional[int] = None
+
+    @field_validator('utm_defaults')
+    def validate_utm_params(cls, v):
+        """Ensure standard UTM parameters."""
+        if 'utm_source' not in v:
+            v['utm_source'] = 'youtube'
+        if 'utm_medium' not in v:
+            v['utm_medium'] = 'description'
+        return v
+
+
+class AffiliatePlacement(BaseModel):
+    """Affiliate link placement configuration."""
+    program_name: str
+    url: str
+    description: str
+    position: AffiliatePlacementPosition = AffiliatePlacementPosition.DESCRIPTION
+    utm_overrides: Optional[dict[str, str]] = None
+    short_code: Optional[str] = None
+    tracking_id: Optional[str] = None
+    priority: int = Field(default=5, ge=1, le=10)
+
+    def get_final_utm_params(self, utm_defaults: dict[str, str]) -> dict[str, str]:
+        """Merge UTM parameters with overrides."""
+        params = utm_defaults.copy()
+        if self.utm_overrides:
+            params.update(self.utm_overrides)
+        return params
+
+
+class SponsorDeal(BaseModel):
+    """Sponsorship deal configuration."""
+    sponsor: str
+    flight_start_iso: str
+    flight_end_iso: str
+    deliverables: list[str] = Field(default_factory=list)
+    cta_text: str
+    landing_url: str
+    disclosure_text: str = "This video contains paid promotion"
+    placement: list[str] = Field(default_factory=list)  # ["preroll", "lower_third", "description"]
+    payment_amount_usd: Optional[float] = None
+    contract_id: Optional[str] = None
+
+    @field_validator('placement')
+    def validate_placement(cls, v):
+        """Validate placement types."""
+        valid_placements = {"preroll", "midroll", "postroll", "lower_third", "description", "overlay"}
+        for p in v:
+            if p not in valid_placements:
+                raise ValueError(f"Invalid placement: {p}")
+        return v
+
+    def is_active(self) -> bool:
+        """Check if deal is currently active."""
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+
+        try:
+            # Parse ISO strings to datetime objects
+            start_str = self.flight_start_iso.replace('Z', '+00:00')
+            end_str = self.flight_end_iso.replace('Z', '+00:00')
+
+            deal_start = datetime.fromisoformat(start_str)
+            deal_end = datetime.fromisoformat(end_str)
+
+            # Convert to UTC if not already
+            if deal_start.tzinfo is None:
+                deal_start = deal_start.replace(tzinfo=timezone.utc)
+            if deal_end.tzinfo is None:
+                deal_end = deal_end.replace(tzinfo=timezone.utc)
+
+            return deal_start <= now <= deal_end
+        except (ValueError, AttributeError):
+            return False
+
+
+class RevenueEvent(BaseModel):
+    """Revenue tracking event."""
+    source: RevenueSource
+    video_slug: str
+    amount_usd: float = Field(ge=0)
+    timestamp_iso: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    transaction_id: Optional[str] = None
+    verified: bool = False
+
+    @field_validator('timestamp_iso')
+    def validate_timestamp(cls, v):
+        """Validate ISO timestamp format."""
+        try:
+            datetime.fromisoformat(v.replace('Z', '+00:00'))
+        except:
+            raise ValueError('Invalid ISO timestamp')
+        return v
+
+
+class DistributionTarget(BaseModel):
+    """Cross-platform distribution target."""
+    platform: str  # Changed from PlatformTarget enum to str for flexibility
+    account_handle: Optional[str] = None
+    webhook_url: Optional[str] = None
+    api_credentials: dict = Field(default_factory=dict)
+    enabled: bool = True
+    premium_account: bool = False
+    # Content fields
+    title: Optional[str] = Field(default=None, max_length=100)
+    description: Optional[str] = Field(default=None, max_length=5000)  # Increased for platform variations
+    tags: list[str] = Field(default_factory=list, max_items=100)  # Increased for platform variations
+    file_path: Optional[str] = None
+    schedule_iso: Optional[str] = None
+    status: str = Field(default="pending", pattern="^(pending|scheduled|published|failed)$")
+    platform_id: Optional[str] = None
+    parent_video_slug: Optional[str] = None
+
+    @field_validator('title', mode='after')
+    def validate_title_length(cls, v, info):
+        """Platform-specific title validation."""
+        if v is None:
+            return v
+        # Access platform from validation context
+        platform = info.data.get('platform', '') if hasattr(info, 'data') else ''
+        if platform == "youtube_shorts" and len(v) > 60:
+            raise ValueError('YouTube Shorts title must be ≤60 characters')
+        if platform == "x" and len(v) > 280:
+            raise ValueError('X/Twitter title must be ≤280 characters')
+        return v
+
+
+class LocalizationRequest(BaseModel):
+    """Localization request configuration."""
+    slug: str
+    languages: list[str] = Field(min_items=1)
+    preferred_voices: Optional[dict[str, str]] = None
+    include_captions: bool = True
+    include_multi_audio: bool = False
+    include_dubbing: bool = True
+    translate_metadata: bool = True
+
+    @field_validator('languages')
+    def validate_language_codes(cls, v):
+        """Validate ISO language codes."""
+        valid_codes = {'es', 'de', 'fr', 'it', 'pt', 'ru', 'ja', 'ko', 'zh', 'hi', 'ar'}
+        for lang in v:
+            if lang not in valid_codes:
+                raise ValueError(f"Unsupported language: {lang}")
+        return v
+
+
+class LocalizationResult(BaseModel):
+    """Localization operation result."""
+    slug: str
+    language: str
+    audio_path: Optional[str] = None
+    subtitle_path: Optional[str] = None
+    metadata_path: Optional[str] = None
+    multi_audio_attached: bool = False
+    status: str = Field(pattern="^(completed|failed|partial)$")
+    errors: list[str] = Field(default_factory=list)
+
+
+class CalendarItem(BaseModel):
+    """Content calendar item."""
+    slug: str
+    platform: str
+    schedule_iso: str
+    status: str = Field(default="scheduled", pattern="^(scheduled|published|cancelled)$")
+    priority: int = Field(default=5, ge=1, le=10)
+    notes: Optional[str] = None
+    dependencies: list[str] = Field(default_factory=list)
+
+    @field_validator('schedule_iso')
+    def validate_future_date(cls, v):
+        """Ensure scheduled date is in the future."""
+        from datetime import datetime
+        scheduled = datetime.fromisoformat(v.replace('Z', '+00:00'))
+        if scheduled < datetime.now():
+            raise ValueError('Schedule date must be in the future')
+        return v
+
+
+class RevenueReport(BaseModel):
+    """Monthly revenue report."""
+    month: str  # YYYY-MM format
+    total_revenue_usd: float
+    revenue_by_source: dict[str, float]
+    top_performers: list[dict[str, Any]]
+    rpm_average: float
+    rpm_delta_pct: float
+    insights: list[str] = Field(default_factory=list)
+    recommendations: list[str] = Field(default_factory=list)
+
+    @field_validator('month')
+    def validate_month_format(cls, v):
+        """Validate YYYY-MM format."""
+        import re
+        if not re.match(r'^\d{4}-\d{2}$', v):
+            raise ValueError('Month must be in YYYY-MM format')
+        return v
+
+
+class ShortsGenerationConfig(BaseModel):
+    """Configuration for Shorts generation."""
+    source_video_slug: str
+    count: int = Field(default=3, ge=1, le=10)
+    segments: Optional[list[tuple[float, float]]] = None  # [(start_sec, end_sec)]
+    auto_select_segments: bool = True
+    burn_captions: bool = True
+    caption_style: dict[str, Any] = Field(default_factory=lambda: {
+        "font": "Arial",
+        "size": 48,
+        "color": "white",
+        "background": "black@0.5",
+        "position": "bottom"
+    })
+    aspect_ratio: str = Field(default="9:16", pattern="^(9:16|1:1|4:5)$")
+    max_duration_sec: int = Field(default=60, le=60)
+
+
+class ShortsSegment(BaseModel):
+    """Individual Shorts segment."""
+    segment_id: str
+    source_slug: str
+    start_sec: float
+    end_sec: float
+    output_path: str
+    title: str
+    description: str
+    tags: list[str]
+    hook_type: str  # "intro", "promise", "payoff", "cliffhanger"
+    predicted_retention: Optional[float] = None
+
+
+class BrandSafetyCheck(BaseModel):
+    """Brand safety validation result."""
+    slug: str
+    passed: bool
+    monetization_eligible: bool = True
+    issues: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    disclosure_present: bool = True
+    affiliate_links_valid: bool = True
+    sponsor_compliance: bool = True
+    content_rating: str = Field(default="G", pattern="^(G|PG|PG-13|R)$")
+    # Added to match safety_checker
+    checks_performed: list[str] = Field(default_factory=list)
+    violations: list[dict] = Field(default_factory=list)
+    score: int = 100
+
+
+class PostingWindow(BaseModel):
+    """Optimal posting time window."""
+    platform: str
+    timezone: str
+    windows: list[tuple[str, str]]  # [("09:00", "12:00"), ("16:00", "19:00")]
+    confidence: float = Field(ge=0, le=1)
+
+    @field_validator('windows')
+    def validate_time_format(cls, v):
+        """Validate HH:MM time format."""
+        import re
+        for start, end in v:
+            if not re.match(r'^\d{2}:\d{2}$', start) or not re.match(r'^\d{2}:\d{2}$', end):
+                raise ValueError('Invalid time format. Use HH:MM')
+        return v

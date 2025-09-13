@@ -1,0 +1,182 @@
+{
+  "name": "Affiliate Link Shortener",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "shorten-url",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "url-shortener-webhook"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract URL and options\nconst url = items[0].json.url;\nconst customAlias = items[0].json.custom_alias || '';\n\n// Validate URL\nif (!url || !url.startsWith('http')) {\n  throw new Error('Invalid URL provided');\n}\n\n// Generate short code if not provided\nlet shortCode = customAlias;\nif (!shortCode) {\n  // Generate random 8-character code\n  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';\n  shortCode = '';\n  for (let i = 0; i < 8; i++) {\n    shortCode += chars.charAt(Math.floor(Math.random() * chars.length));\n  }\n}\n\nreturn {\n  original_url: url,\n  short_code: shortCode,\n  custom_alias: customAlias,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "name": "Validate and Prepare",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.short.io/links",
+        "method": "POST",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "{{ $credentials.shortioApiKey }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "originalURL",
+              "value": "={{ $json.original_url }}"
+            },
+            {
+              "name": "path",
+              "value": "={{ $json.short_code }}"
+            },
+            {
+              "name": "domain",
+              "value": "{{ $credentials.shortDomain || 'link.short.gy' }}"
+            },
+            {
+              "name": "title",
+              "value": "Affiliate Link"
+            }
+          ]
+        }
+      },
+      "name": "Short.io API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [650, 200]
+    },
+    {
+      "parameters": {
+        "url": "https://api.rebrandly.com/v1/links",
+        "method": "POST",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $credentials.rebrandlyApiKey }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "destination",
+              "value": "={{ $json.original_url }}"
+            },
+            {
+              "name": "slashtag",
+              "value": "={{ $json.short_code }}"
+            },
+            {
+              "name": "domain",
+              "value": {
+                "fullName": "{{ $credentials.customDomain || 'rebrand.ly' }}"
+              }
+            }
+          ]
+        }
+      },
+      "name": "Rebrandly API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [650, 400]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Process shortener response\nlet shortUrl = '';\nlet provider = '';\n\n// Check which provider was used\nif (items[0].json.shortURL) {\n  // Short.io response\n  shortUrl = items[0].json.shortURL;\n  provider = 'short.io';\n} else if (items[0].json.shortUrl) {\n  // Rebrandly response\n  shortUrl = items[0].json.shortUrl;\n  provider = 'rebrandly';\n} else {\n  // Fallback to custom domain\n  const domain = 'https://ytf.link'; // Your custom domain\n  shortUrl = `${domain}/${items[0].json.short_code}`;\n  provider = 'custom';\n}\n\n// Store in database for tracking\nconst linkData = {\n  short_url: shortUrl,\n  original_url: items[0].json.original_url,\n  short_code: items[0].json.short_code,\n  provider: provider,\n  created_at: items[0].json.timestamp,\n  clicks: 0\n};\n\nreturn linkData;"
+      },
+      "name": "Process Response",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "affiliate_links",
+        "columns": "short_url,original_url,short_code,provider,created_at",
+        "values": "={{ $json.short_url }},={{ $json.original_url }},={{ $json.short_code }},={{ $json.provider }},={{ $json.created_at }}"
+      },
+      "name": "Store in Database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "short_url",
+              "value": "={{ $json.short_url }}"
+            },
+            {
+              "name": "original_url",
+              "value": "={{ $json.original_url }}"
+            },
+            {
+              "name": "short_code",
+              "value": "={{ $json.short_code }}"
+            },
+            {
+              "name": "provider",
+              "value": "={{ $json.provider }}"
+            }
+          ]
+        }
+      },
+      "name": "Return Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{"node": "Validate and Prepare", "type": "main", "index": 0}]]
+    },
+    "Validate and Prepare": {
+      "main": [[{"node": "Short.io API", "type": "main", "index": 0}]]
+    },
+    "Short.io API": {
+      "main": [[{"node": "Process Response", "type": "main", "index": 0}]]
+    },
+    "Process Response": {
+      "main": [[{"node": "Store in Database", "type": "main", "index": 0}]]
+    },
+    "Store in Database": {
+      "main": [[{"node": "Return Response", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "error-handler"
+  },
+  "staticData": null,
+  "meta": {
+    "instanceId": "affiliate-shortener"
+  },
+  "tags": []
+}

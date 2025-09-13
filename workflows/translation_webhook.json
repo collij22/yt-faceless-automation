@@ -1,0 +1,199 @@
+{
+  "name": "Translation Service",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "translate",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "translation-webhook"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract translation parameters\nconst text = items[0].json.text;\nconst sourceLang = items[0].json.source_lang || 'en';\nconst targetLang = items[0].json.target_lang;\nconst provider = items[0].json.provider || 'google';\nconst context = items[0].json.context || '';\n\n// Validate inputs\nif (!text || !targetLang) {\n  throw new Error('Missing required parameters: text and target_lang');\n}\n\n// Prepare for translation service\nreturn {\n  text,\n  sourceLang,\n  targetLang,\n  provider,\n  context,\n  originalLength: text.length\n};"
+      },
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.provider }}",
+              "value2": "google"
+            }
+          ]
+        }
+      },
+      "name": "Provider Router",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://translation.googleapis.com/language/translate/v2",
+        "method": "POST",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Goog-Api-Key",
+              "value": "={{ $credentials.googleApiKey }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $json.text }}"
+            },
+            {
+              "name": "source",
+              "value": "={{ $json.sourceLang }}"
+            },
+            {
+              "name": "target",
+              "value": "={{ $json.targetLang }}"
+            },
+            {
+              "name": "format",
+              "value": "text"
+            }
+          ]
+        }
+      },
+      "name": "Google Translate",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [850, 200]
+    },
+    {
+      "parameters": {
+        "url": "https://api-free.deepl.com/v2/translate",
+        "method": "POST",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "DeepL-Auth-Key {{ $credentials.deeplApiKey }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "={{ $json.text }}"
+            },
+            {
+              "name": "source_lang",
+              "value": "={{ $json.sourceLang.toUpperCase() }}"
+            },
+            {
+              "name": "target_lang",
+              "value": "={{ $json.targetLang.toUpperCase() }}"
+            }
+          ]
+        }
+      },
+      "name": "DeepL Translate",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [850, 400]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract translated text based on provider\nlet translatedText = '';\nconst provider = items[0].json.provider;\n\nif (provider === 'google') {\n  // Google Translate response format\n  translatedText = items[0].json.data?.translations?.[0]?.translatedText || '';\n} else if (provider === 'deepl') {\n  // DeepL response format\n  translatedText = items[0].json.translations?.[0]?.text || '';\n} else {\n  // Azure or other providers\n  translatedText = items[0].json.text || items[0].json.translatedText || '';\n}\n\n// Apply context-specific adjustments\nconst context = items[0].json.context;\nif (context === 'youtube_video_title') {\n  // Ensure title case and limit length\n  translatedText = translatedText.substring(0, 100);\n} else if (context === 'youtube_tag') {\n  // Remove spaces for tags\n  translatedText = translatedText.replace(/\\s+/g, '');\n}\n\nreturn {\n  translated_text: translatedText,\n  source_lang: items[0].json.sourceLang,\n  target_lang: items[0].json.targetLang,\n  provider: provider,\n  context: context,\n  original_length: items[0].json.originalLength,\n  translated_length: translatedText.length\n};"
+      },
+      "name": "Process Translation",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "translated_text",
+              "value": "={{ $json.translated_text }}"
+            },
+            {
+              "name": "source_lang",
+              "value": "={{ $json.source_lang }}"
+            },
+            {
+              "name": "target_lang",
+              "value": "={{ $json.target_lang }}"
+            },
+            {
+              "name": "provider",
+              "value": "={{ $json.provider }}"
+            }
+          ],
+          "number": [
+            {
+              "name": "original_length",
+              "value": "={{ $json.original_length }}"
+            },
+            {
+              "name": "translated_length",
+              "value": "={{ $json.translated_length }}"
+            }
+          ]
+        }
+      },
+      "name": "Format Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{"node": "Validate Input", "type": "main", "index": 0}]]
+    },
+    "Validate Input": {
+      "main": [[{"node": "Provider Router", "type": "main", "index": 0}]]
+    },
+    "Provider Router": {
+      "main": [
+        [{"node": "Google Translate", "type": "main", "index": 0}],
+        [{"node": "DeepL Translate", "type": "main", "index": 0}]
+      ]
+    },
+    "Google Translate": {
+      "main": [[{"node": "Process Translation", "type": "main", "index": 0}]]
+    },
+    "DeepL Translate": {
+      "main": [[{"node": "Process Translation", "type": "main", "index": 0}]]
+    },
+    "Process Translation": {
+      "main": [[{"node": "Format Response", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "instanceId": "translation-service"
+  },
+  "tags": []
+}

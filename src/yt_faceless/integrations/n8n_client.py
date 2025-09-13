@@ -230,6 +230,30 @@ class N8NClient:
         except Exception as e:
             logger.error(f"Failed to send error notification: {e}")
 
+    async def execute_webhook(self, url: str, payload: dict, timeout: int = 30) -> dict:
+        """Execute a generic webhook asynchronously.
+
+        Args:
+            url: Webhook URL
+            payload: Request payload
+            timeout: Request timeout in seconds
+
+        Returns:
+            Response data from webhook
+        """
+        import aiohttp
+
+        if not hasattr(self, 'session') or self.session is None:
+            self.session = aiohttp.ClientSession()
+
+        try:
+            async with self.session.post(url, json=payload, timeout=timeout) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+        except Exception as e:
+            logger.error(f"Webhook execution failed: {e}")
+            raise
+
     # Phase 6: Typed Upload Methods
 
     def upload_video(self, payload: YouTubeUploadPayload) -> YouTubeUploadResponse:

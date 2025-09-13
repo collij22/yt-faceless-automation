@@ -1,0 +1,200 @@
+{
+  "name": "Scheduled Upload Executor",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "scheduled-upload",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "scheduled-upload-webhook"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract upload parameters\nconst slug = items[0].json.slug;\nconst scheduledTime = items[0].json.scheduled_time;\nconst metadata = items[0].json.metadata || {};\n\n// Validate inputs\nif (!slug) {\n  throw new Error('Missing required parameter: slug');\n}\n\n// Check if it's time to upload\nconst now = new Date();\nconst scheduled = new Date(scheduledTime);\n\nif (scheduled > now) {\n  // Not time yet, reschedule\n  return {\n    action: 'reschedule',\n    slug,\n    scheduledTime,\n    waitMinutes: Math.ceil((scheduled - now) / 60000)\n  };\n}\n\n// Time to upload\nreturn {\n  action: 'upload',\n  slug,\n  metadata,\n  scheduledTime\n};"
+      },
+      "name": "Check Schedule",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.action }}",
+              "value2": "upload"
+            }
+          ]
+        }
+      },
+      "name": "Action Router",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "amount": "={{ $json.waitMinutes }}",
+        "unit": "minutes"
+      },
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [850, 400]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Prepare upload payload\nconst slug = items[0].json.slug;\nconst metadata = items[0].json.metadata;\n\n// Build video file path\nconst contentDir = `/content/${slug}`;\nconst videoPath = `${contentDir}/final.mp4`;\nconst thumbnailPath = `${contentDir}/thumbnail.png`;\nconst metadataPath = `${contentDir}/metadata.json`;\n\nreturn {\n  slug,\n  videoPath,\n  thumbnailPath,\n  metadataPath,\n  title: metadata.title || 'Untitled Video',\n  description: metadata.description?.text || metadata.description || '',\n  tags: metadata.tags || [],\n  categoryId: metadata.category_id || '22',\n  privacyStatus: 'public',\n  scheduledPublishTime: items[0].json.scheduledTime\n};"
+      },
+      "name": "Prepare Upload",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [850, 200]
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/upload/youtube/v3/videos",
+        "method": "POST",
+        "authentication": "oAuth2",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "part",
+              "value": "snippet,status"
+            },
+            {
+              "name": "snippet",
+              "value": {
+                "title": "={{ $json.title }}",
+                "description": "={{ $json.description }}",
+                "tags": "={{ $json.tags }}",
+                "categoryId": "={{ $json.categoryId }}"
+              }
+            },
+            {
+              "name": "status",
+              "value": {
+                "privacyStatus": "={{ $json.privacyStatus }}",
+                "publishAt": "={{ $json.scheduledPublishTime }}"
+              }
+            }
+          ]
+        },
+        "sendBinaryData": true,
+        "binaryPropertyName": "video",
+        "binaryData": {
+          "video": "={{ $json.videoPath }}"
+        }
+      },
+      "name": "Upload to YouTube",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1050, 200]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract video ID and URL from response\nconst videoId = items[0].json.id;\nconst videoUrl = `https://youtube.com/watch?v=${videoId}`;\n\nreturn {\n  success: true,\n  slug: items[0].json.slug,\n  video_id: videoId,\n  url: videoUrl,\n  uploaded_at: new Date().toISOString()\n};"
+      },
+      "name": "Process Upload Response",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1250, 200]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "table": "content_calendar",
+        "updateKey": "slug",
+        "columns": "status,video_id,url,published_time",
+        "values": "published,={{ $json.video_id }},={{ $json.url }},={{ $json.uploaded_at }}",
+        "where": "slug={{ $json.slug }}"
+      },
+      "name": "Update Calendar",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [1450, 200]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "success"
+            },
+            {
+              "name": "message",
+              "value": "Video uploaded successfully"
+            },
+            {
+              "name": "video_id",
+              "value": "={{ $json.video_id }}"
+            },
+            {
+              "name": "url",
+              "value": "={{ $json.url }}"
+            }
+          ]
+        }
+      },
+      "name": "Success Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [1650, 200]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{"node": "Check Schedule", "type": "main", "index": 0}]]
+    },
+    "Check Schedule": {
+      "main": [[{"node": "Action Router", "type": "main", "index": 0}]]
+    },
+    "Action Router": {
+      "main": [
+        [{"node": "Prepare Upload", "type": "main", "index": 0}],
+        [{"node": "Wait", "type": "main", "index": 0}]
+      ]
+    },
+    "Wait": {
+      "main": [[{"node": "Check Schedule", "type": "main", "index": 0}]]
+    },
+    "Prepare Upload": {
+      "main": [[{"node": "Upload to YouTube", "type": "main", "index": 0}]]
+    },
+    "Upload to YouTube": {
+      "main": [[{"node": "Process Upload Response", "type": "main", "index": 0}]]
+    },
+    "Process Upload Response": {
+      "main": [[{"node": "Update Calendar", "type": "main", "index": 0}]]
+    },
+    "Update Calendar": {
+      "main": [[{"node": "Success Response", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "instanceId": "scheduled-upload"
+  },
+  "tags": []
+}

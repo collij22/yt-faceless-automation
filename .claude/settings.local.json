@@ -45,7 +45,16 @@
       "Bash(git init:*)",
       "Bash(git config:*)",
       "Bash(git add:*)",
-      "Bash(del nul)"
+      "Bash(del nul)",
+      "Bash(git commit:*)",
+      "Bash(gh repo create:*)",
+      "Bash(git remote add:*)",
+      "Bash(git branch:*)",
+      "Bash(git push:*)",
+      "Bash(gh repo view:*)",
+      "Bash(.venv\\Scripts\\python.exe -m yt_faceless:*)",
+      "Bash(.venvScriptspython.exe test_phase8_fixes.py)",
+      "Bash(.venv\\Scripts\\python.exe test_phase8_comprehensive_proof.py:*)"
     ],
     "deny": [],
     "ask": []

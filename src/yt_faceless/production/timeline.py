@@ -311,7 +311,7 @@ def infer_timeline_from_script(
             if ken_burns and matched_asset["type"] == "image":
                 scene["zoom_pan"] = _generate_ken_burns_effect(
                     duration=section_data.end_time - section_data.start_time,
-                    fps=cfg.video.default_fps
+                    fps=cfg.video.fps
                 )
 
             scenes.append(scene)
@@ -334,9 +334,9 @@ def infer_timeline_from_script(
         narration_track=str(narration_path) if narration_path.exists() else "",
         subtitle_path=str(subtitle_path) if subtitle_path.exists() else None,
         burn_subtitles=cfg.features.get("auto_subtitles", True),
-        width=cfg.video.default_width,
-        height=cfg.video.default_height,
-        fps=cfg.video.default_fps
+        width=cfg.video.width,
+        height=cfg.video.height,
+        fps=cfg.video.fps
     )
 
     # Save timeline

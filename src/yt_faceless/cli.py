@@ -660,6 +660,511 @@ def _cmd_optimize_create(args: argparse.Namespace) -> int:
         return 1
 
 
+# Phase 8 Commands - Monetization & Scale
+
+def _cmd_monetize_affiliates(args: argparse.Namespace) -> int:
+    """Handle monetize affiliates command."""
+    try:
+        import asyncio
+        from .monetization.affiliates import inject_affiliate_links
+
+        config = load_enhanced_config()
+
+        # Load existing description
+        content_dir = config.directories.content_dir / args.slug
+        metadata_path = content_dir / "metadata.json"
+
+        if metadata_path.exists():
+            with open(metadata_path, 'r') as f:
+                metadata = json.load(f)
+                # Handle both string and dict description formats
+                desc_data = metadata.get("description", "")
+                if isinstance(desc_data, dict):
+                    description = desc_data.get("text", "")
+                else:
+                    description = str(desc_data)
+                niche = metadata.get("niche")
+        else:
+            description = ""
+            niche = None
+
+        # Inject affiliate links
+        result = asyncio.run(inject_affiliate_links(
+            config,
+            args.slug,
+            description,
+            niche=niche,
+            pin_comment=args.pin_comment,
+            dry_run=args.dry_run
+        ))
+
+        if args.dry_run:
+            print(f"[DRY RUN] Would inject affiliate links for {args.slug}")
+            if "placements" in result:
+                print(f"Placements: {len(result['placements'])}")
+        else:
+            # Save updated metadata (maintain dict structure for description)
+            if isinstance(metadata.get("description"), dict):
+                metadata["description"]["text"] = result["description"]
+            else:
+                metadata["description"] = {"text": result["description"]}
+            if "pinned_comment" in result:
+                metadata["pinned_comment"] = result["pinned_comment"]
+
+            # Store structured affiliate links in monetization settings
+            if "affiliate_links" in result:
+                if "monetization_settings" not in metadata:
+                    metadata["monetization_settings"] = {}
+                metadata["monetization_settings"]["affiliate_links"] = result["affiliate_links"]
+
+            with open(metadata_path, 'w') as f:
+                json.dump(metadata, f, indent=2)
+
+            print(f"✅ Injected affiliate links for {args.slug}")
+            if "pinned_comment" in result:
+                print("📌 Generated pinned comment")
+
+        return 0
+
+    except Exception as e:
+        logger.error(f"Affiliate injection failed: {e}")
+        print(f"ERROR: {e}")
+        return 1
+
+
+def _cmd_monetize_sponsor(args: argparse.Namespace) -> int:
+    """Handle monetize sponsor command."""
+    try:
+        from .monetization.sponsorships import apply_sponsorship_disclosure
+
+        config = load_enhanced_config()
+
+        # Load existing metadata
+        content_dir = config.directories.content_dir / args.slug
+        metadata_path = content_dir / "metadata.json"
+
+        if metadata_path.exists():
+            with open(metadata_path, 'r') as f:
+                metadata = json.load(f)
+                # Handle both string and dict description formats
+                desc_data = metadata.get("description", "")
+                if isinstance(desc_data, dict):
+                    description = desc_data.get("text", "")
+                else:
+                    description = str(desc_data)
+                niche = metadata.get("niche")
+                duration = metadata.get("duration_seconds", 600)
+        else:
+            description = ""
+            niche = None
+            duration = 600
+
+        # Apply sponsorship disclosure
+        result = apply_sponsorship_disclosure(
+            config,
+            args.slug,
+            description,
+            video_duration=duration,
+            niche=niche,
+            apply_overlay=args.apply_overlay,
+            dry_run=args.dry_run
+        )
+
+        if args.dry_run:
+            print(f"[DRY RUN] Would apply sponsorship for {args.slug}")
+            if "deals" in result:
+                print(f"Active deals: {len(result['deals'])}")
+        else:
+            # Save updated metadata (maintain dict structure for description)
+            if isinstance(metadata.get("description"), dict):
+                metadata["description"]["text"] = result["description"]
+            else:
+                metadata["description"] = {"text": result["description"]}
+            if "overlay_markers" in result:
+                metadata["overlay_markers"] = result["overlay_markers"]
+            if "monetization_settings" in result:
+                metadata["monetization_settings"] = result["monetization_settings"]
+
+            with open(metadata_path, 'w') as f:
+                json.dump(metadata, f, indent=2)
+
+            print(f"✅ Applied sponsorship disclosure for {args.slug}")
+            if "overlay_markers" in result:
+                print(f"📊 Added {len(result['overlay_markers'])} overlay markers")
+
+        return 0
+
+    except Exception as e:
+        logger.error(f"Sponsorship application failed: {e}")
+        print(f"ERROR: {e}")
+        return 1
+
+
+def _cmd_shorts_generate(args: argparse.Namespace) -> int:
+    """Handle shorts generate command."""
+    try:
+        from .production.shorts import generate_shorts
+
+        config = load_enhanced_config()
+
+        # Parse segments if provided
+        segments = None
+        if args.segments:
+            segments = []
+            for seg in args.segments.split(','):
+                start, end = seg.split('-')
+                # Convert MM:SS to seconds
+                def to_seconds(time_str):
+                    parts = time_str.split(':')
+                    if len(parts) == 2:
+                        return int(parts[0]) * 60 + int(parts[1])
+                    return int(parts[0])
+
+                segments.append((to_seconds(start), to_seconds(end)))
+
+        # Generate Shorts
+        shorts = generate_shorts(
+            config,
+            args.slug,
+            count=args.count,
+            segments=segments,
+            burn_captions=args.burn_captions,
+            dry_run=args.dry_run
+        )
+
+        if args.dry_run:
+            print(f"[DRY RUN] Would generate {len(shorts)} Shorts for {args.slug}")
+        else:
+            print(f"✅ Generated {len(shorts)} Shorts for {args.slug}")
+            for short in shorts:
+                print(f"  - {short.segment_id}: {short.hook_type} ({short.start_sec:.0f}s-{short.end_sec:.0f}s)")
+
+        return 0
+
+    except Exception as e:
+        logger.error(f"Shorts generation failed: {e}")
+        print(f"ERROR: {e}")
+        return 1
+
+
+def _cmd_revenue_report(args: argparse.Namespace) -> int:
+    """Handle revenue report command."""
+    try:
+        from .monetization.revenue import generate_revenue_report
+
+        config = load_enhanced_config()
+
+        # Generate revenue report
+        report = generate_revenue_report(
+            config,
+            month=args.month,
+            output_json=args.json
+        )
+
+        if args.json:
+            print(json.dumps(report, indent=2, default=str))
+        else:
+            print(f"📊 Revenue Report - {report['month']}")
+            print(f"Total Revenue: {report['total_revenue']}")
+            print(f"Average RPM: {report['rpm']}")
+            if report['top_video']:
+                print(f"Top Video: {report['top_video']['slug']} (${report['top_video']['revenue']:.2f})")
+            print(f"\nFull report: {report['report_path']}")
+
+        return 0
+
+    except Exception as e:
+        logger.error(f"Revenue report generation failed: {e}")
+        print(f"ERROR: {e}")
+        return 1
+
+
+def _cmd_distribute_post(args: argparse.Namespace) -> int:
+    """Handle distribute post command."""
+    try:
+        import asyncio
+        from .distribution.cross_platform import distribute_content
+
+        config = load_enhanced_config()
+
+        # Parse platforms
+        platforms = args.platforms.split(',') if args.platforms else ["tiktok", "instagram", "x"]
+
+        # Distribute content
+        result = asyncio.run(distribute_content(
+            config,
+            args.slug,
+            platforms=platforms,
+            schedule=False,
+            dry_run=args.dry_run
+        ))
+
+        if args.dry_run:
+            print(f"[DRY RUN] Would distribute {args.slug}")
+            for platform, details in result.items():
+                if platform != "status":
+                    print(f"  {platform}: {details}")
+        else:
+            print(f"✅ Distributed {args.slug}")
+            for platform, details in result.items():
+                if platform != "status":
+                    print(f"  {platform}: {details.get('status', 'unknown')}")
+
+        return 0
+
+    except Exception as e:
+        logger.error(f"Failed to distribute content: {e}")
+        return 1
+
+
+def _cmd_distribute_schedule(args: argparse.Namespace) -> int:
+    """Handle distribute schedule command."""
+    try:
+        import asyncio
+        from datetime import datetime
+        from .distribution.cross_platform import distribute_content
+
+        config = load_enhanced_config()
+
+        # Parse platforms
+        platforms = args.platforms.split(',') if args.platforms else ["tiktok", "instagram", "x"]
+
+        # Parse base time if provided
+        schedule_time = None
+        if args.base_time:
+            schedule_time = datetime.fromisoformat(args.base_time)
+
+        # Schedule distribution
+        result = asyncio.run(distribute_content(
+            config,
+            args.slug,
+            platforms=platforms,
+            schedule=True,
+            schedule_time=schedule_time,
+            dry_run=False
+        ))
+
+        print(f"📅 Scheduled distribution for {args.slug}")
+        for platform, time_info in result.items():
+            if platform != "status":
+                print(f"  {platform}: {time_info}")
+
+        return 0
+
+    except Exception as e:
+        logger.error(f"Failed to schedule distribution: {e}")
+        return 1
+
+
+def _cmd_distribute(args: argparse.Namespace) -> int:
+    """Legacy distribute command handler - kept for compatibility."""
+    # This function is kept for backward compatibility
+    # The new subcommands handle the actual functionality
+    return _cmd_distribute_post(args) if not hasattr(args, 'schedule') or not args.schedule else _cmd_distribute_schedule(args)
+
+
+def _cmd_localize_run(args: argparse.Namespace) -> int:
+    """Handle localize run command."""
+    try:
+        import asyncio
+        from .localization.translator import translate_content
+
+        config = load_enhanced_config()
+
+        # Parse languages
+        languages = args.languages.split(',') if args.languages else []
+
+        # Localize content
+        result = asyncio.run(translate_content(
+            config,
+            args.slug,
+            target_languages=languages,
+            generate_audio=args.audio,
+            generate_subtitles=args.subtitles,
+            dry_run=args.dry_run
+        ))
+
+        if args.dry_run:
+            print(f"[DRY RUN] Would localize {args.slug} to: {', '.join(languages)}")
+        else:
+            print(f"✅ Localized {args.slug}")
+            for lang, details in result.get("languages", {}).items():
+                status = details.get("status", "unknown")
+                print(f"  {lang}: {status}")
+                if status == "success":
+                    if "metadata" in details:
+                        print(f"    Metadata: {details['metadata']}")
+                    if "subtitles" in details:
+                        print(f"    Subtitles: {details['subtitles']}")
+                    if "audio" in details:
+                        print(f"    Audio: {details['audio']}")
+
+        return 0
+
+    except Exception as e:
+        logger.error(f"Failed to localize content: {e}")
+        return 1
+
+
+def _cmd_localize(args: argparse.Namespace) -> int:
+    """Legacy localize command handler - kept for compatibility."""
+    # Convert old format to new format
+    if hasattr(args, 'languages') and isinstance(args.languages, list):
+        args.languages = ','.join(args.languages)
+    return _cmd_localize_run(args)
+
+
+def _cmd_safety_check(args: argparse.Namespace) -> int:
+    """Handle safety check command."""
+    try:
+        import asyncio
+        from .guardrails.safety_checker import check_content_safety, validate_compliance
+
+        config = load_enhanced_config()
+
+        if args.fix:
+            # Validate and fix
+            result = asyncio.run(validate_compliance(
+                config,
+                args.slug,
+                fix_issues=True
+            ))
+            print(f"✅ Compliance check for {args.slug}")
+            print(f"  Status: {'PASS' if result['passed'] else 'FAIL'}")
+            print(f"  Score: {result['score']}/100")
+            if result.get('fixed'):
+                print(f"  Fixed issues: Yes")
+        else:
+            # Just check
+            result = asyncio.run(check_content_safety(
+                config,
+                args.slug,
+                platforms=["youtube"],  # Default to YouTube
+                run_ai_check=args.ai
+            ))
+            print(f"🔍 Safety check for {args.slug}")
+            print(f"  Status: {'PASS' if result.passed else 'FAIL'}")
+            print(f"  Score: {result.score}/100")
+
+            if result.violations:
+                print("\n  Violations:")
+                for v in result.violations[:5]:  # Show first 5
+                    print(f"    - {v.get('type')}: {v.get('issue', v.get('term', 'unknown'))}")
+
+            if result.warnings:
+                print("\n  Warnings:")
+                for w in result.warnings[:3]:  # Show first 3
+                    if isinstance(w, dict):
+                        print(f"    - {w.get('type')}: {w.get('topic', 'unknown')}")
+                    else:
+                        print(f"    - {w}")
+
+        return 0
+
+    except Exception as e:
+        logger.error(f"Failed to check content safety: {e}")
+        return 1
+
+
+def _cmd_safety(args: argparse.Namespace) -> int:
+    """Legacy safety command handler - kept for compatibility."""
+    # Convert old format to new format
+    if not hasattr(args, 'ai'):
+        args.ai = getattr(args, 'ai_check', False)
+    return _cmd_safety_check(args)
+
+
+def _cmd_calendar_schedule(args: argparse.Namespace) -> int:
+    """Handle calendar schedule command."""
+    try:
+        import asyncio
+        from datetime import datetime
+        from .schedule.calendar import schedule_content
+
+        config = load_enhanced_config()
+
+        # Parse date if provided
+        publish_date = None
+        if args.date:
+            publish_date = datetime.strptime(args.date, "%Y-%m-%d %H:%M")
+
+        # Schedule content
+        result = asyncio.run(schedule_content(
+            config,
+            args.slug,
+            publish_date=publish_date,
+            template=args.template,
+            dry_run=args.dry_run
+        ))
+
+        if args.dry_run:
+            print(f"[DRY RUN] Would schedule {args.slug}")
+            if "would_schedule" in result:
+                print(f"  Date: {result['would_schedule']['scheduled_time']}")
+        else:
+            print(f"📅 Scheduled {args.slug}")
+            print(f"  Date: {result['scheduled_time']}")
+            if result.get('conflicts_resolved'):
+                print(f"  Note: Conflicts were resolved automatically")
+
+        return 0
+
+    except Exception as e:
+        logger.error(f"Failed to schedule content: {e}")
+        return 1
+
+
+def _cmd_calendar_view(args: argparse.Namespace) -> int:
+    """Handle calendar view command."""
+    try:
+        from .schedule.calendar import get_publishing_schedule
+
+        config = load_enhanced_config()
+
+        # Get schedule
+        result = get_publishing_schedule(
+            config,
+            days_ahead=args.days,
+            analyze=args.analyze
+        )
+
+        print(f"📅 Content Schedule (next {args.days} days)")
+        print("-" * 40)
+
+        if result['upcoming']:
+            for item in result['upcoming']:
+                time = item.get('scheduled_time', item.get('published_time'))
+                status = item.get('status', 'scheduled')
+                print(f"  {time[:16]} - {item['slug']} [{status}]")
+        else:
+            print("  No scheduled content")
+
+        if args.analyze and 'analytics' in result:
+            analytics = result['analytics']
+            print("\n📊 Publishing Analytics")
+            print("-" * 40)
+
+            if analytics.get('status') != 'no_data':
+                print(f"  Total published: {analytics.get('total_published', 0)}")
+                print(f"  Avg views (24h): {analytics.get('average_views_24h', 0):.0f}")
+
+                if analytics.get('best_days'):
+                    days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+                    best = analytics['best_days'][0]
+                    print(f"  Best day: {days[best[0]]} ({best[1]:.0f} avg views)")
+
+                if analytics.get('recommendations'):
+                    print("\n  Recommendations:")
+                    for rec in analytics['recommendations']:
+                        print(f"    - {rec}")
+
+        return 0
+
+    except Exception as e:
+        logger.error(f"Failed to view calendar: {e}")
+        return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="ytfaceless", description="Faceless YouTube automation CLI"
@@ -806,6 +1311,148 @@ def main(argv: list[str] | None = None) -> int:
                                    help="Variant definition (format: name:type=value)")
     p_optimize_create.add_argument("--kpi", default="ctr", help="Primary KPI to optimize")
     p_optimize_create.set_defaults(func=_cmd_optimize_create)
+
+    # Phase 8 Commands - Monetization & Scale
+
+    # Monetize command group
+    p_monetize = sub.add_parser("monetize", help="Monetization commands")
+    p_monetize_sub = p_monetize.add_subparsers(dest="monetize_command", required=True)
+
+    # Monetize affiliates subcommand
+    p_monetize_affiliates = p_monetize_sub.add_parser(
+        "affiliates",
+        help="Inject affiliate links into video metadata"
+    )
+    p_monetize_affiliates.add_argument("--slug", required=True, help="Content slug")
+    p_monetize_affiliates.add_argument("--pin-comment", action="store_true",
+                                       help="Generate pinned comment with affiliate links")
+    p_monetize_affiliates.add_argument("--dry-run", action="store_true",
+                                       help="Preview changes without applying")
+    p_monetize_affiliates.set_defaults(func=_cmd_monetize_affiliates)
+
+    # Monetize sponsor subcommand
+    p_monetize_sponsor = p_monetize_sub.add_parser(
+        "sponsor",
+        help="Apply sponsorship disclosure and markers"
+    )
+    p_monetize_sponsor.add_argument("--slug", required=True, help="Content slug")
+    p_monetize_sponsor.add_argument("--apply-overlay", action="store_true",
+                                    help="Add overlay markers to timeline")
+    p_monetize_sponsor.add_argument("--dry-run", action="store_true",
+                                    help="Preview changes without applying")
+    p_monetize_sponsor.set_defaults(func=_cmd_monetize_sponsor)
+
+    # Shorts command
+    p_shorts = sub.add_parser("shorts", help="YouTube Shorts commands")
+    p_shorts_sub = p_shorts.add_subparsers(dest="shorts_command", required=True)
+
+    # Shorts generate subcommand
+    p_shorts_generate = p_shorts_sub.add_parser(
+        "generate",
+        help="Generate Shorts from long-form video"
+    )
+    p_shorts_generate.add_argument("--slug", required=True, help="Content slug")
+    p_shorts_generate.add_argument("--count", type=int, default=3,
+                                   help="Number of Shorts to generate (default: 3)")
+    p_shorts_generate.add_argument("--segments",
+                                   help="Specific segments (format: MM:SS-MM:SS,MM:SS-MM:SS)")
+    p_shorts_generate.add_argument("--burn-captions", action="store_true", default=True,
+                                   help="Burn captions into video (default: True)")
+    p_shorts_generate.add_argument("--dry-run", action="store_true",
+                                   help="Preview without generating files")
+    p_shorts_generate.set_defaults(func=_cmd_shorts_generate)
+
+    # Revenue command
+    p_revenue = sub.add_parser("revenue", help="Revenue tracking and reporting")
+    p_revenue_sub = p_revenue.add_subparsers(dest="revenue_command", required=True)
+
+    # Revenue report subcommand
+    p_revenue_report = p_revenue_sub.add_parser(
+        "report",
+        help="Generate monthly revenue report"
+    )
+    p_revenue_report.add_argument("--month",
+                                  help="Report month (YYYY-MM format, default: current month)")
+    p_revenue_report.add_argument("--json", action="store_true",
+                                  help="Output report as JSON")
+    p_revenue_report.set_defaults(func=_cmd_revenue_report)
+
+    # DISTRIBUTE command with subparsers
+    p_distribute = sub.add_parser("distribute", help="Cross-platform distribution")
+    distrib_sub = p_distribute.add_subparsers(dest="distribute_command", required=True)
+
+    p_distribute_post = distrib_sub.add_parser("post", help="Post immediately")
+    p_distribute_post.add_argument("--slug", required=True, help="Video slug to distribute")
+    p_distribute_post.add_argument("--platforms", default="tiktok,instagram,x",
+                                  help="Comma-separated platforms")
+    p_distribute_post.add_argument("--dry-run", action="store_true",
+                                  help="Simulate without distributing")
+    p_distribute_post.set_defaults(func=_cmd_distribute_post)
+
+    p_distribute_schedule = distrib_sub.add_parser("schedule", help="Schedule distribution")
+    p_distribute_schedule.add_argument("--slug", required=True, help="Video slug to schedule")
+    p_distribute_schedule.add_argument("--platforms", default="tiktok,instagram,x",
+                                      help="Comma-separated platforms")
+    p_distribute_schedule.add_argument("--base-time", help="ISO time (UTC)")
+    p_distribute_schedule.set_defaults(func=_cmd_distribute_schedule)
+
+    # LOCALIZE command with subparsers
+    p_localize = sub.add_parser("localize", help="Localization")
+    localize_sub = p_localize.add_subparsers(dest="localize_command", required=True)
+
+    p_localize_run = localize_sub.add_parser("run", help="Translate content")
+    p_localize_run.add_argument("--slug", required=True, help="Video slug to localize")
+    p_localize_run.add_argument("--languages", required=True,
+                               help="Comma-separated languages (e.g., es,de,fr)")
+    p_localize_run.add_argument("--audio", action="store_true",
+                               help="Generate voice-overs")
+    p_localize_run.add_argument("--subtitles", action="store_true", default=True,
+                               help="Generate subtitles")
+    p_localize_run.add_argument("--dry-run", action="store_true",
+                               help="Simulate without localizing")
+    p_localize_run.set_defaults(func=_cmd_localize_run)
+
+    # SAFETY command with subparsers
+    p_safety = sub.add_parser("safety", help="Brand safety checks")
+    safety_sub = p_safety.add_subparsers(dest="safety_command", required=True)
+
+    p_safety_check = safety_sub.add_parser("check", help="Run safety checks")
+    p_safety_check.add_argument("--slug", required=True, help="Video slug to check")
+    p_safety_check.add_argument("--ai", action="store_true",
+                               help="Run AI-powered moderation")
+    p_safety_check.add_argument("--fix", action="store_true",
+                               help="Attempt to fix issues")
+    p_safety_check.set_defaults(func=_cmd_safety_check)
+
+    # Calendar command
+    p_calendar = sub.add_parser("calendar", help="Content calendar management")
+    p_calendar_sub = p_calendar.add_subparsers(dest="calendar_command", required=True)
+
+    # Calendar schedule subcommand
+    p_calendar_schedule = p_calendar_sub.add_parser(
+        "schedule",
+        help="Schedule content for publishing"
+    )
+    p_calendar_schedule.add_argument("slug", help="Video slug to schedule")
+    p_calendar_schedule.add_argument("--date",
+                                    help="Publish date (YYYY-MM-DD HH:MM format)")
+    p_calendar_schedule.add_argument("--template",
+                                    choices=["daily", "weekday", "weekend", "optimal"],
+                                    help="Use scheduling template")
+    p_calendar_schedule.add_argument("--dry-run", action="store_true",
+                                    help="Simulate without scheduling")
+    p_calendar_schedule.set_defaults(func=_cmd_calendar_schedule)
+
+    # Calendar view subcommand
+    p_calendar_view = p_calendar_sub.add_parser(
+        "view",
+        help="View upcoming schedule"
+    )
+    p_calendar_view.add_argument("--days", type=int, default=7,
+                                help="Days ahead to show")
+    p_calendar_view.add_argument("--analyze", action="store_true",
+                                help="Include analytics")
+    p_calendar_view.set_defaults(func=_cmd_calendar_view)
 
     args = parser.parse_args(argv)
     

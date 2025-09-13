@@ -136,13 +136,37 @@ class Orchestrator:
                     for c in metadata["chapters"]
                 ]
 
+            # Prepare description text robustly (handle both string and dict)
+            raw_desc = metadata.get("description", "")
+            if isinstance(raw_desc, dict):
+                desc_text = raw_desc.get("text", "")
+            else:
+                desc_text = str(raw_desc)
+
+            # Forward monetization settings from metadata
+            monetization_from_meta = metadata.get("monetization_settings") or {}
+            monetization = MonetizationSettings(
+                enable_ads=metadata.get("monetization", {}).get("enable_ads", True),
+                affiliate_links=monetization_from_meta.get("affiliate_links"),
+                sponsorship_disclosure=monetization_from_meta.get("sponsorship_disclosure"),
+            )
+
+            # Extract tags robustly (handle both dict and list)
+            raw_tags = metadata.get("tags", [])
+            if isinstance(raw_tags, dict):
+                tags = (raw_tags.get("primary", []) or []) + (raw_tags.get("competitive", []) or [])
+            elif isinstance(raw_tags, list):
+                tags = raw_tags
+            else:
+                tags = []
+
             # Build upload payload
             payload = YouTubeUploadPayload(
                 video_path=str(video_path),
                 thumbnail_path=str(thumbnail_path) if thumbnail_path else None,
                 title=metadata.get("title", metadata.get("titles", [{}])[0].get("text", f"Video {slug}")),
-                description=metadata.get("description", {}).get("text", ""),
-                tags=metadata.get("tags", {}).get("primary", []) + metadata.get("tags", {}).get("competitive", []),
+                description=desc_text,
+                tags=tags,
                 category_id=metadata.get("category_id"),
                 privacy_status=privacy or os.getenv("DEFAULT_PRIVACY_STATUS", "private"),
                 publish_at_iso=schedule_iso,
@@ -152,13 +176,52 @@ class Orchestrator:
                 slug=slug,
                 checksum_sha256=checksum,
                 transaction_id=transaction_id,
-                # Don't send quality_gates unless actually validated
-                monetization_settings=MonetizationSettings(
-                    enable_ads=metadata.get("monetization", {}).get("enable_ads", True)
-                ),
+                monetization_settings=monetization,
                 platform_targets=["youtube"],
                 upload_priority=5,
             )
+
+            # Optional: pre-publish safety gate (behind env flag)
+            if os.getenv("FEATURE_PREPUBLISH_SAFETY", "false").lower() == "true":
+                from .guardrails.safety_checker import check_content_safety
+                import asyncio
+
+                safety_result = asyncio.run(check_content_safety(
+                    self.enhanced_config,
+                    slug,
+                    platforms=["youtube"],
+                    run_ai_check=False
+                ))
+
+                if not safety_result.passed:
+                    if not force:
+                        raise RuntimeError(f"Pre-publish safety failed (score={safety_result.score}): {safety_result.violations}")
+                    else:
+                        logger.warning(f"Pre-publish safety failed but forcing upload (score={safety_result.score})")
+
+            # Also check config-based safety setting for backward compatibility
+            elif self.enhanced_config.features.get("safety_check_on_publish", False):
+                from .guardrails.safety_checker import check_content_safety
+                import asyncio
+
+                safety_result = asyncio.run(check_content_safety(
+                    self.enhanced_config,
+                    slug,
+                    platforms=["youtube"],
+                    run_ai_check=False
+                ))
+
+                if not safety_result.passed:
+                    # Check for high severity violations
+                    high_severity = [v for v in safety_result.violations if v.get("severity") == "high"]
+                    if high_severity:
+                        logger.error(f"Content failed safety check with high severity violations: {high_severity}")
+                        if not force:
+                            raise ValueError(f"Content safety check failed. Use --force to override. Violations: {high_severity}")
+                        else:
+                            logger.warning("Safety check failed but proceeding due to --force flag")
+                    else:
+                        logger.warning(f"Content has safety warnings (score: {safety_result.score}): {safety_result.violations}")
 
             if dry_run:
                 logger.info("Dry run mode - skipping actual upload")
@@ -179,6 +242,19 @@ class Orchestrator:
             # Verify upload if requested
             if verify and response.status in ["uploaded", "scheduled"]:
                 self._verify_upload(response.video_id)
+
+            # Pin comment if configured and present in metadata
+            pinned_comment = metadata.get("pinned_comment")
+            if pinned_comment and self.enhanced_config.webhooks.pin_comment_url:
+                try:
+                    self.n8n_client._post_webhook(
+                        self.enhanced_config.webhooks.pin_comment_url,
+                        {"video_id": response.video_id, "text": pinned_comment},
+                        timeout=30
+                    )
+                    logger.info(f"Pinned comment set for video {response.video_id}")
+                except Exception as e:
+                    logger.warning(f"Pin comment failed: {e}")
 
             logger.info(f"Successfully uploaded video {response.video_id} for slug {slug}")
             return response
