@@ -54,7 +54,17 @@
       "Bash(gh repo view:*)",
       "Bash(.venv\\Scripts\\python.exe -m yt_faceless:*)",
       "Bash(.venvScriptspython.exe test_phase8_fixes.py)",
-      "Bash(.venv\\Scripts\\python.exe test_phase8_comprehensive_proof.py:*)"
+      "Bash(.venv\\Scripts\\python.exe test_phase8_comprehensive_proof.py:*)",
+      "Bash(del validate_workflows.py)",
+      "WebFetch(domain:github.com)",
+      "Bash(npm install:*)",
+      "Bash(del:*)",
+      "Bash(mcp list:*)",
+      "Bash(.venv\\Scripts\\python.exe test_workflows_mcp.py:*)",
+      "Bash(.venv\\Scripts\\python.exe -m pip install:*)",
+      "Bash(curl:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []

@@ -1,0 +1,30 @@
+{
+  "timestamp": "2025-09-14T09:36:00.015235",
+  "workflows": {
+    "TTS Generation": {
+      "success": false,
+      "error": "Expecting value: line 1 column 1 (char 0)"
+    },
+    "YouTube Upload": {
+      "success": false,
+      "error": "Expecting value: line 1 column 1 (char 0)"
+    },
+    "YouTube Analytics": {
+      "success": false,
+      "error": "Expecting value: line 1 column 1 (char 0)"
+    },
+    "Cross-Platform Distribution": {
+      "success": false,
+      "error": "Expecting value: line 1 column 1 (char 0)"
+    },
+    "Affiliate Shortener": {
+      "success": false,
+      "error": "Expecting value: line 1 column 1 (char 0)"
+    }
+  },
+  "summary": {
+    "passed": 0,
+    "failed": 5,
+    "total": 5
+  }
+}

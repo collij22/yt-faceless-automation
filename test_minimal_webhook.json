@@ -1,0 +1,29 @@
+{
+  "name": "Test Minimal Webhook",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "test-webhook",
+        "responseMode": "onReceived",
+        "responseData": "firstEntryJson",
+        "options": {}
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    }
+  ],
+  "connections": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "01234567-89ab-cdef-0123-456789abcdef",
+  "meta": {
+    "instanceId": "8a47e9c8d0e52d7e11ee8c62058bf021cb2068bd09630ac0833bf6e5a90b9b1c"
+  },
+  "id": "test123",
+  "tags": []
+}
