@@ -20,7 +20,7 @@ load_dotenv()
 # Configuration
 N8N_BASE_URL = os.getenv("N8N_BASE_URL", "http://localhost:5678")
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
-YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "AIzaSyBy4nQXiHuslrLgQwnqi0W-GuC1tb4WFTA")
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
 
 # Test results storage
 test_results = {
