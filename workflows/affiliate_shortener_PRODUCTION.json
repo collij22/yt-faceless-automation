@@ -1,0 +1,194 @@
+{
+  "name": "Affiliate Link Shortener Production",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "affiliate-shorten",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        250,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json[\"original_url\"]}}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "validate",
+      "name": "Validate URL",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        450,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "original_url",
+              "value": "={{$json[\"original_url\"]}}"
+            },
+            {
+              "name": "utm_source",
+              "value": "={{$json[\"utm_source\"] || \"youtube\"}}"
+            },
+            {
+              "name": "utm_medium",
+              "value": "={{$json[\"utm_medium\"] || \"video\"}}"
+            },
+            {
+              "name": "utm_campaign",
+              "value": "={{$json[\"utm_campaign\"] || \"default\"}}"
+            },
+            {
+              "name": "title",
+              "value": "={{$json[\"title\"] || \"Affiliate Link\"}}"
+            },
+            {
+              "name": "short_code",
+              "value": "={{$json[\"custom_alias\"] || Math.random().toString(36).substring(2, 8)}}"
+            }
+          ],
+          "boolean": [
+            {
+              "name": "generate_qr",
+              "value": "={{$json[\"generate_qr\"] !== false}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "prepare",
+      "name": "Prepare Link Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "error"
+            },
+            {
+              "name": "message",
+              "value": "Original URL is required"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "error",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        650,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Build tracking URL with UTM parameters\nconst data = $input.first().json;\nconst url = new URL(data.original_url);\n\n// Add UTM parameters\nurl.searchParams.set('utm_source', data.utm_source);\nurl.searchParams.set('utm_medium', data.utm_medium);\nurl.searchParams.set('utm_campaign', data.utm_campaign);\n\n// Detect affiliate program\nconst domain = url.hostname;\nlet program = 'unknown';\nif (domain.includes('amazon')) program = 'Amazon Associates';\nelse if (domain.includes('shareasale')) program = 'ShareASale';\nelse if (domain.includes('clickbank')) program = 'ClickBank';\n\nreturn [{\n  json: {\n    ...data,\n    tracking_url: url.toString(),\n    affiliate_program: program,\n    short_url: `https://short.link/${data.short_code}`,\n    qr_code_url: data.generate_qr ? `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(url.toString())}` : null\n  }\n}];"
+      },
+      "id": "build_url",
+      "name": "Build Tracking URL",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        850,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Final response with analytics\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    status: 'success',\n    message: 'Link shortened successfully',\n    link: {\n      original: data.original_url,\n      tracking: data.tracking_url,\n      short: data.short_url,\n      short_code: data.short_code\n    },\n    tracking: {\n      utm_source: data.utm_source,\n      utm_medium: data.utm_medium,\n      utm_campaign: data.utm_campaign\n    },\n    affiliate: {\n      program: data.affiliate_program,\n      estimated_commission: '2-5%'\n    },\n    qr_code: data.qr_code_url ? {\n      enabled: true,\n      url: data.qr_code_url\n    } : {\n      enabled: false\n    },\n    analytics: {\n      clicks: 0,\n      conversions: 0,\n      revenue: 0\n    },\n    created_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "final_response",
+      "name": "Final Response",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1050,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate URL": {
+      "main": [
+        [
+          {
+            "node": "Prepare Link Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Link Data": {
+      "main": [
+        [
+          {
+            "node": "Build Tracking URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Tracking URL": {
+      "main": [
+        [
+          {
+            "node": "Final Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

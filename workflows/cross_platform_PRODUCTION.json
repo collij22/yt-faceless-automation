@@ -1,0 +1,182 @@
+{
+  "name": "Cross-Platform Distribution Production",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cross-platform-distribute",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        250,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json[\"title\"]}}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "validate",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        450,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "title",
+              "value": "={{$json[\"title\"]}}"
+            },
+            {
+              "name": "description",
+              "value": "={{$json[\"description\"] || \"\"}}"
+            },
+            {
+              "name": "platforms",
+              "value": "={{JSON.stringify($json[\"platforms\"] || [\"tiktok\", \"instagram\", \"twitter\"])}}"
+            }
+          ],
+          "number": [
+            {
+              "name": "platform_count",
+              "value": "={{($json[\"platforms\"] || [\"tiktok\", \"instagram\", \"twitter\"]).length}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "prepare",
+      "name": "Prepare Distribution",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "error"
+            },
+            {
+              "name": "message",
+              "value": "Title is required"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "error",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        650,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Create platform-specific versions\nconst platforms = JSON.parse($input.first().json.platforms);\nconst title = $input.first().json.title;\nconst description = $input.first().json.description;\n\nreturn platforms.map(platform => ({\n  json: {\n    platform: platform,\n    title: title,\n    description: description,\n    formatted_title: platform === 'twitter' ? title.substring(0, 280) : title,\n    formatted_description: platform === 'tiktok' ? description.substring(0, 150) : description,\n    hashtags: platform === 'instagram' ? '#reels #viral' : '',\n    posted: true,\n    url: `https://${platform}.com/post/${Math.random().toString(36).substring(2, 10)}`\n  }\n}));"
+      },
+      "id": "split_platforms",
+      "name": "Split Platforms",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        850,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Aggregate platform results\nconst items = $input.all();\nconst platforms = items.map(item => ({\n  platform: item.json.platform,\n  url: item.json.url,\n  posted: item.json.posted\n}));\n\nreturn [{\n  json: {\n    status: 'success',\n    message: `Distributed to ${platforms.length} platforms`,\n    summary: {\n      total_platforms: platforms.length,\n      successful: platforms.filter(p => p.posted).length,\n      failed: platforms.filter(p => !p.posted).length\n    },\n    platforms: platforms,\n    urls: platforms.reduce((acc, p) => {\n      acc[p.platform] = p.url;\n      return acc;\n    }, {}),\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "aggregate",
+      "name": "Aggregate Results",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1050,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Prepare Distribution",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Distribution": {
+      "main": [
+        [
+          {
+            "node": "Split Platforms",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Platforms": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

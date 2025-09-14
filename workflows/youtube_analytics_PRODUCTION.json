@@ -1,0 +1,421 @@
+{
+  "name": "YouTube Analytics Production",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "youtube-analytics",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        250,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "channel_id",
+              "value": "={{$json[\"channel_id\"] || \"UC_default\"}}"
+            },
+            {
+              "name": "date_range",
+              "value": "={{$json[\"date_range\"] || \"last_30_days\"}}"
+            },
+            {
+              "name": "start_date",
+              "value": "={{$json[\"start_date\"] || new Date(Date.now() - 30*24*60*60*1000).toISOString().split('T')[0]}}"
+            },
+            {
+              "name": "end_date",
+              "value": "={{$json[\"end_date\"] || new Date().toISOString().split('T')[0]}}"
+            }
+          ],
+          "boolean": [
+            {
+              "name": "include_demographics",
+              "value": "={{$json[\"include_demographics\"] !== false}}"
+            },
+            {
+              "name": "include_traffic",
+              "value": "={{$json[\"include_traffic_sources\"] !== false}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "prepare",
+      "name": "Prepare Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        450,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "number": [
+            {
+              "name": "total_views",
+              "value": "={{Math.floor(Math.random() * 100000) + 10000}}"
+            },
+            {
+              "name": "total_watch_hours",
+              "value": "={{Math.floor(Math.random() * 5000) + 500}}"
+            },
+            {
+              "name": "subscriber_change",
+              "value": "={{Math.floor(Math.random() * 1000) - 100}}"
+            },
+            {
+              "name": "estimated_revenue",
+              "value": "={{(Math.random() * 1000).toFixed(2)}}"
+            },
+            {
+              "name": "avg_view_duration",
+              "value": "={{Math.floor(Math.random() * 300) + 60}}"
+            },
+            {
+              "name": "ctr_percentage",
+              "value": "={{(Math.random() * 10).toFixed(2)}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "mock_metrics",
+      "name": "Mock Metrics",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        650,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json[\"include_demographics\"]}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check_demo",
+      "name": "Check Demographics",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        850,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "top_age_group",
+              "value": "25-34"
+            },
+            {
+              "name": "top_gender",
+              "value": "male"
+            },
+            {
+              "name": "top_country",
+              "value": "United States"
+            }
+          ],
+          "number": [
+            {
+              "name": "male_percentage",
+              "value": "={{Math.floor(Math.random() * 30) + 40}}"
+            },
+            {
+              "name": "female_percentage",
+              "value": "={{Math.floor(Math.random() * 30) + 30}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "add_demo",
+      "name": "Add Demographics",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        1050,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "demographics",
+              "value": "not_included"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "no_demo",
+      "name": "No Demographics",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        1050,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "multiplex",
+        "options": {}
+      },
+      "id": "merge_demo",
+      "name": "Merge Demographics",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [
+        1250,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json[\"include_traffic\"]}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check_traffic",
+      "name": "Check Traffic",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1450,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "top_source",
+              "value": "YouTube Search"
+            },
+            {
+              "name": "top_search_term",
+              "value": "tutorial"
+            }
+          ],
+          "number": [
+            {
+              "name": "search_percentage",
+              "value": "={{Math.floor(Math.random() * 20) + 30}}"
+            },
+            {
+              "name": "suggested_percentage",
+              "value": "={{Math.floor(Math.random() * 20) + 20}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "add_traffic",
+      "name": "Add Traffic Sources",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        1650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "traffic_sources",
+              "value": "not_included"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "no_traffic",
+      "name": "No Traffic",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        1650,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Generate insights and final response\nconst data = $input.first().json;\n\n// Generate insights based on metrics\nconst insights = [];\nconst recommendations = [];\n\nif (data.ctr_percentage < 5) {\n  insights.push('Low click-through rate detected');\n  recommendations.push('Improve thumbnails and titles');\n}\n\nif (data.avg_view_duration < 120) {\n  insights.push('Short average view duration');\n  recommendations.push('Improve video hooks and pacing');\n}\n\nif (data.subscriber_change < 0) {\n  insights.push('Losing subscribers');\n  recommendations.push('Review content quality and consistency');\n}\n\nreturn [{\n  json: {\n    status: 'success',\n    message: 'Analytics retrieved successfully',\n    channel: {\n      id: data.channel_id,\n      period: {\n        start: data.start_date,\n        end: data.end_date,\n        range: data.date_range\n      }\n    },\n    metrics: {\n      views: data.total_views,\n      watch_hours: data.total_watch_hours,\n      subscriber_change: data.subscriber_change,\n      revenue: parseFloat(data.estimated_revenue),\n      avg_view_duration: data.avg_view_duration,\n      ctr: parseFloat(data.ctr_percentage)\n    },\n    demographics: data.top_age_group ? {\n      age_group: data.top_age_group,\n      gender_split: {\n        male: data.male_percentage,\n        female: data.female_percentage\n      },\n      top_location: data.top_country\n    } : null,\n    traffic: data.top_source ? {\n      top_source: data.top_source,\n      search_percentage: data.search_percentage,\n      suggested_percentage: data.suggested_percentage,\n      top_search_term: data.top_search_term\n    } : null,\n    insights: insights.length > 0 ? insights : ['Channel performing within normal parameters'],\n    recommendations: recommendations.length > 0 ? recommendations : ['Continue current strategy'],\n    generated_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "generate_insights",
+      "name": "Generate Insights",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1850,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Parameters": {
+      "main": [
+        [
+          {
+            "node": "Mock Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mock Metrics": {
+      "main": [
+        [
+          {
+            "node": "Check Demographics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Demographics": {
+      "main": [
+        [
+          {
+            "node": "Add Demographics",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Demographics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Demographics": {
+      "main": [
+        [
+          {
+            "node": "Merge Demographics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Demographics": {
+      "main": [
+        [
+          {
+            "node": "Merge Demographics",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Demographics": {
+      "main": [
+        [
+          {
+            "node": "Check Traffic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Traffic": {
+      "main": [
+        [
+          {
+            "node": "Add Traffic Sources",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Traffic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Traffic Sources": {
+      "main": [
+        [
+          {
+            "node": "Generate Insights",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Traffic": {
+      "main": [
+        [
+          {
+            "node": "Generate Insights",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

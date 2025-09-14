@@ -1,0 +1,465 @@
+{
+  "name": "TTS Production Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tts-generation",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        250,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json[\"text\"]}}",
+              "operation": "isNotEmpty"
+            },
+            {
+              "value1": "={{$json[\"slug\"]}}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "validate_input",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        450,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "error",
+              "value": "Missing required fields: text and slug"
+            },
+            {
+              "name": "status",
+              "value": "error"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "error_response",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        650,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "text",
+              "value": "={{$json[\"text\"]}}"
+            },
+            {
+              "name": "slug",
+              "value": "={{$json[\"slug\"]}}"
+            },
+            {
+              "name": "voice_id",
+              "value": "={{$json[\"voice_id\"] || \"EXAVITQu4vr4xnSDxMaL\"}}"
+            },
+            {
+              "name": "provider",
+              "value": "={{$json[\"provider\"] || \"elevenlabs\"}}"
+            },
+            {
+              "name": "model_id",
+              "value": "={{$json[\"model_id\"] || \"eleven_monolingual_v1\"}}"
+            },
+            {
+              "name": "language",
+              "value": "={{$json[\"language\"] || \"en\"}}"
+            },
+            {
+              "name": "output_format",
+              "value": "={{$json[\"output_format\"] || \"mp3_44100_128\"}}"
+            }
+          ],
+          "number": [
+            {
+              "name": "text_length",
+              "value": "={{$json[\"text\"].length}}"
+            },
+            {
+              "name": "chunk_size",
+              "value": "={{$json[\"chunk_size\"] || 5000}}"
+            },
+            {
+              "name": "stability",
+              "value": "={{$json[\"stability\"] || 0.5}}"
+            },
+            {
+              "name": "similarity_boost",
+              "value": "={{$json[\"similarity_boost\"] || 0.5}}"
+            }
+          ],
+          "boolean": [
+            {
+              "name": "needs_chunking",
+              "value": "={{$json[\"text\"].length > ($json[\"chunk_size\"] || 5000)}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "prepare_metadata",
+      "name": "Prepare Metadata",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json[\"needs_chunking\"]}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check_chunking",
+      "name": "Check Chunking",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        850,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Only use Code node for complex text chunking logic\nconst text = $input.first().json.text;\nconst maxSize = $input.first().json.chunk_size;\nconst sentences = text.match(/[^.!?]+[.!?]+/g) || [text];\n\nlet chunks = [];\nlet currentChunk = '';\nlet chunkIndex = 0;\n\nfor (const sentence of sentences) {\n  if ((currentChunk + sentence).length > maxSize && currentChunk.length > 0) {\n    chunks.push({\n      text: currentChunk.trim(),\n      index: chunkIndex,\n      filename: `${$input.first().json.slug}_part${chunkIndex}.mp3`\n    });\n    currentChunk = sentence;\n    chunkIndex++;\n  } else {\n    currentChunk += sentence;\n  }\n}\n\nif (currentChunk.trim().length > 0) {\n  chunks.push({\n    text: currentChunk.trim(),\n    index: chunkIndex,\n    filename: `${$input.first().json.slug}_part${chunkIndex}.mp3`\n  });\n}\n\nreturn chunks.map(chunk => ({\n  json: {\n    ...$input.first().json,\n    chunk_text: chunk.text,\n    chunk_index: chunk.index,\n    chunk_filename: chunk.filename,\n    total_chunks: chunks.length\n  }\n}));"
+      },
+      "id": "chunk_text",
+      "name": "Chunk Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1050,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "chunk_text",
+              "value": "={{$json[\"text\"]}}"
+            },
+            {
+              "name": "chunk_filename",
+              "value": "={{$json[\"slug\"]}}.mp3"
+            }
+          ],
+          "number": [
+            {
+              "name": "chunk_index",
+              "value": 0
+            },
+            {
+              "name": "total_chunks",
+              "value": 1
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "single_chunk",
+      "name": "Single Chunk",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        1050,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json[\"provider\"]}}",
+              "value2": "elevenlabs"
+            }
+          ]
+        }
+      },
+      "id": "route_provider",
+      "name": "Route Provider",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [
+        1250,
+        300
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.elevenlabs.io/v1/text-to-speech/{{$json.voice_id}}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "audio/mpeg"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"text\": \"{{$json.chunk_text}}\", \"model_id\": \"{{$json.model_id}}\", \"voice_settings\": {\"stability\": {{$json.stability}}, \"similarity_boost\": {{$json.similarity_boost}}}}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "elevenlabs_api",
+      "name": "ElevenLabs API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        1450,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "success"
+            },
+            {
+              "name": "message",
+              "value": "TTS generation mock response"
+            },
+            {
+              "name": "audio_file",
+              "value": "={{$json[\"chunk_filename\"]}}"
+            },
+            {
+              "name": "provider_used",
+              "value": "mock"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "mock_tts",
+      "name": "Mock TTS Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        1450,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "multiplex",
+        "options": {}
+      },
+      "id": "merge_responses",
+      "name": "Merge Responses",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [
+        1650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Aggregate all chunk responses\nconst items = $input.all();\nconst firstItem = items[0].json;\n\nreturn [{\n  json: {\n    status: 'success',\n    message: 'TTS generation completed',\n    request: {\n      slug: firstItem.slug,\n      text_length: firstItem.text_length,\n      provider: firstItem.provider,\n      voice_id: firstItem.voice_id,\n      language: firstItem.language\n    },\n    output: {\n      total_chunks: items.length,\n      files: items.map(item => item.json.chunk_filename || item.json.audio_file),\n      format: firstItem.output_format\n    },\n    processing: {\n      chunking_applied: firstItem.needs_chunking,\n      chunk_size: firstItem.chunk_size,\n      timestamp: new Date().toISOString()\n    }\n  }\n}];"
+      },
+      "id": "aggregate_response",
+      "name": "Aggregate Response",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1850,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Prepare Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Metadata": {
+      "main": [
+        [
+          {
+            "node": "Check Chunking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Chunking": {
+      "main": [
+        [
+          {
+            "node": "Chunk Text",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Single Chunk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chunk Text": {
+      "main": [
+        [
+          {
+            "node": "Route Provider",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Single Chunk": {
+      "main": [
+        [
+          {
+            "node": "Route Provider",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Provider": {
+      "main": [
+        [
+          {
+            "node": "ElevenLabs API",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mock TTS Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ElevenLabs API": {
+      "main": [
+        [
+          {
+            "node": "Merge Responses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mock TTS Response": {
+      "main": [
+        [
+          {
+            "node": "Merge Responses",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Responses": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

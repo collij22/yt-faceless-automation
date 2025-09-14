@@ -1,0 +1,469 @@
+{
+  "name": "YouTube Upload Production",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "youtube-upload",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        250,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json[\"title\"]}}",
+              "operation": "isNotEmpty"
+            },
+            {
+              "value1": "={{$json[\"description\"]}}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "validate",
+      "name": "Validate Required",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        450,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "title",
+              "value": "={{$json[\"title\"].substring(0, 100)}}"
+            },
+            {
+              "name": "description",
+              "value": "={{$json[\"description\"].substring(0, 5000)}}"
+            },
+            {
+              "name": "tags",
+              "value": "={{JSON.stringify($json[\"tags\"] || [])}}"
+            },
+            {
+              "name": "category_id",
+              "value": "={{$json[\"category_id\"] || \"22\"}}"
+            },
+            {
+              "name": "privacy",
+              "value": "={{$json[\"privacy\"] || \"private\"}}"
+            },
+            {
+              "name": "video_id",
+              "value": "YT_{{Date.now()}}_{{Math.random().toString(36).substring(2, 8)}}"
+            },
+            {
+              "name": "thumbnail_url",
+              "value": "={{$json[\"thumbnail_url\"] || \"\"}}"
+            },
+            {
+              "name": "playlist_id",
+              "value": "={{$json[\"playlist_id\"] || \"\"}}"
+            }
+          ],
+          "boolean": [
+            {
+              "name": "made_for_kids",
+              "value": "={{$json[\"made_for_kids\"] || false}}"
+            },
+            {
+              "name": "has_thumbnail",
+              "value": "={{!!$json[\"thumbnail_url\"]}}"
+            },
+            {
+              "name": "has_playlist",
+              "value": "={{!!$json[\"playlist_id\"]}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "prepare_upload",
+      "name": "Prepare Upload Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "error"
+            },
+            {
+              "name": "message",
+              "value": "Missing required fields: title and description"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "error",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        650,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "upload_status",
+              "value": "initiated"
+            },
+            {
+              "name": "video_url",
+              "value": "https://youtube.com/watch?v={{$json[\"video_id\"]}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "mock_upload",
+      "name": "Mock Upload",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        850,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json[\"has_thumbnail\"]}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check_thumbnail",
+      "name": "Check Thumbnail",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1050,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "thumbnail_status",
+              "value": "uploaded"
+            },
+            {
+              "name": "thumbnail_url",
+              "value": "={{$json[\"thumbnail_url\"]}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "add_thumbnail",
+      "name": "Add Thumbnail",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        1250,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "thumbnail_status",
+              "value": "none"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "no_thumbnail",
+      "name": "No Thumbnail",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        1250,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "multiplex",
+        "options": {}
+      },
+      "id": "merge_thumbnail",
+      "name": "Merge Thumbnail",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [
+        1450,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json[\"has_playlist\"]}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check_playlist",
+      "name": "Check Playlist",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "playlist_status",
+              "value": "added"
+            },
+            {
+              "name": "playlist_id",
+              "value": "={{$json[\"playlist_id\"]}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "add_playlist",
+      "name": "Add to Playlist",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        1850,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "playlist_status",
+              "value": "none"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "no_playlist",
+      "name": "No Playlist",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        1850,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Final response aggregation\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    status: 'success',\n    message: 'Video uploaded successfully',\n    video: {\n      id: data.video_id,\n      url: data.video_url,\n      title: data.title,\n      description: data.description,\n      tags: JSON.parse(data.tags),\n      privacy: data.privacy,\n      category_id: data.category_id\n    },\n    thumbnail: {\n      status: data.thumbnail_status,\n      url: data.thumbnail_url\n    },\n    playlist: {\n      status: data.playlist_status || 'none',\n      id: data.playlist_id\n    },\n    metadata: {\n      made_for_kids: data.made_for_kids,\n      upload_status: data.upload_status,\n      timestamp: new Date().toISOString()\n    }\n  }\n}];"
+      },
+      "id": "final_response",
+      "name": "Final Response",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        2050,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Required",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Required": {
+      "main": [
+        [
+          {
+            "node": "Prepare Upload Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Upload Data": {
+      "main": [
+        [
+          {
+            "node": "Mock Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mock Upload": {
+      "main": [
+        [
+          {
+            "node": "Check Thumbnail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Thumbnail": {
+      "main": [
+        [
+          {
+            "node": "Add Thumbnail",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Thumbnail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Thumbnail": {
+      "main": [
+        [
+          {
+            "node": "Merge Thumbnail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Thumbnail": {
+      "main": [
+        [
+          {
+            "node": "Merge Thumbnail",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Thumbnail": {
+      "main": [
+        [
+          {
+            "node": "Check Playlist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Playlist": {
+      "main": [
+        [
+          {
+            "node": "Add to Playlist",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Playlist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to Playlist": {
+      "main": [
+        [
+          {
+            "node": "Final Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Playlist": {
+      "main": [
+        [
+          {
+            "node": "Final Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
