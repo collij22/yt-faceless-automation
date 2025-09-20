@@ -83,20 +83,53 @@ Outputs:
 
 ## Quickstart (Windows-friendly)
 
-1) Prereqs
-```
+### Prerequisites
+```bash
 python --version          # 3.12+
 ffmpeg -version
 ```
 
-2) Create and activate venv, install dev tools
-```
+### Setup
+```bash
+# Create and activate venv
 py -3.12 -m venv .venv
-+.venv\Scripts\activate
-+pip install -e .[dev]
+.venv\Scripts\activate
+
+# Install dependencies
+pip install -e .[dev]
+
+# Configure environment
+copy .env.example .env    # Edit with your API keys
 ```
 
-3) Initialize the project
+### Usage - Production Pipeline V4
+
+The latest V4 pipeline generates properly sized videos with dynamic content:
+
+```bash
+# Run the full production pipeline (default: sonnet model)
+python run_full_production_pipeline_v4.py
+
+# Run with different AI models
+python run_full_production_pipeline_v4.py --model claude   # Comprehensive content
+python run_full_production_pipeline_v4.py --model haiku    # Concise, viral-focused
+python run_full_production_pipeline_v4.py --model sonnet   # Balanced (default)
+```
+
+**Key V4 Features:**
+- ✅ Dynamic script length (1, 5, 10, or 30 minute videos)
+- ✅ No placeholders - all unique AI-generated content
+- ✅ Accurate timestamps matching actual video duration
+- ✅ Model selection for different content styles
+- ✅ Fresh idea generation (no recycling)
+
+When prompted:
+- Select video length (1/5/10/30 minutes) - script adjusts automatically
+- Choose niche (Finance/Tech/Health/Education)
+- Pick or create custom idea
+- Video generates at correct length (e.g., 5 min selection = 6 min video)
+
+### Initialize the project
 ```
 ytfaceless init
 ```
