@@ -5,25 +5,72 @@ from __future__ import annotations
 import json
 import logging
 import random
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, TypedDict
 
 from ..core.config import AppConfig
 from ..core.errors import TimelineError, ValidationError
 from ..core.schemas import ScriptSection
+from .scene_analyzer import SceneAnalyzer, SceneSegment
 
 logger = logging.getLogger(__name__)
 
 
-class ZoomPanEffect(TypedDict):
+@dataclass
+class VisualAsset:
+    """Represents a visual asset (image/video) for use in timeline."""
+    path: Path
+    title: str
+    creator: Optional[str] = None
+    license: Optional[str] = None
+    source_url: Optional[str] = None
+    attribution: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    duration: Optional[float] = None  # For videos
+    content_hash: Optional[str] = None  # For deduplication
+    asset_type: Literal["image", "video"] = "image"
+
+
+@dataclass
+class ZoomPanEffect:
     """Ken Burns zoom/pan effect parameters."""
-    zoom_start: float  # Starting zoom level (1.0 = no zoom)
-    zoom_end: float  # Ending zoom level
-    pan_x_start: float  # Starting X position (0-1)
-    pan_x_end: float  # Ending X position
-    pan_y_start: float  # Starting Y position (0-1)
-    pan_y_end: float  # Ending Y position
-    duration_frames: int  # Effect duration in frames
+    zoom_start: float = 1.0  # Starting zoom level (1.0 = no zoom)
+    zoom_end: float = 1.1  # Ending zoom level
+    pan_x_start: float = 0.5  # Starting X position (0-1)
+    pan_x_end: float = 0.5  # Ending X position
+    pan_y_start: float = 0.5  # Starting Y position (0-1)
+    pan_y_end: float = 0.5  # Ending Y position
+    duration_frames: int = 150  # Effect duration in frames
+
+
+@dataclass
+class VisualShot:
+    """Represents a single visual shot within a scene."""
+    asset: VisualAsset
+    start_time: float  # Start time relative to scene
+    duration: float  # Shot duration
+    kenburns_effect: Optional[ZoomPanEffect] = None
+    transition_in: Optional[str] = None
+    transition_out: Optional[str] = None
+    transition_duration: float = 0.5
+    overlay_text: Optional[str] = None
+    overlay_position: str = "bottom"
+
+
+@dataclass
+class SceneSpec:
+    """Complete specification for a scene with visuals."""
+    scene_id: str
+    scene_index: int
+    start_time: float  # Absolute time in video
+    end_time: float
+    duration: float
+    key_phrase: Optional[str] = None
+    shots: List[VisualShot] = field(default_factory=list)
+    audio_duck: bool = False  # Duck music during important narration
+    scene_type: Optional[str] = None  # hook, explanation, proof, etc.
 
 
 class TimelineScene(TypedDict):
@@ -82,6 +129,51 @@ class TimelineBuilder:
 
     def __init__(self, config: AppConfig):
         self.config = config
+
+    def build_advanced_timeline(
+        self,
+        slug: str,
+        scene_specs: List[SceneSpec],
+        music_track: Optional[str] = None,
+        narration_track: Optional[str] = None,
+        **kwargs
+    ) -> Timeline:
+        """Build an advanced timeline from scene specifications.
+
+        Args:
+            slug: Content slug identifier
+            scene_specs: List of scene specifications with shots
+            music_track: Optional background music path
+            narration_track: Optional narration audio path
+            **kwargs: Additional timeline parameters
+
+        Returns:
+            Complete timeline specification
+        """
+        # Convert SceneSpecs to TimelineScenes
+        timeline_scenes = []
+
+        for spec in scene_specs:
+            # Process each shot in the scene
+            for i, shot in enumerate(spec.shots):
+                scene = TimelineScene(
+                    scene_id=f"{spec.scene_id}_shot_{i}",
+                    clip_path=str(shot.asset.path),
+                    start_time=spec.start_time + shot.start_time,
+                    end_time=spec.start_time + shot.start_time + shot.duration,
+                    source_start=0,
+                    source_end=shot.duration,
+                    transition=shot.transition_in,
+                    transition_duration=shot.transition_duration,
+                    zoom_pan=shot.kenburns_effect.__dict__ if shot.kenburns_effect else None,
+                    overlay_text=shot.overlay_text or spec.key_phrase,
+                    overlay_position=shot.overlay_position,
+                    audio_duck=spec.audio_duck,
+                    effects=[]
+                )
+                timeline_scenes.append(scene)
+
+        return self.build_timeline(slug, timeline_scenes, music_track, **kwargs)
 
     def build_timeline(
         self,
@@ -214,6 +306,404 @@ def validate_timeline(timeline: Timeline) -> None:
     # Raise validation error if any issues found
     if errors:
         raise ValidationError(f"Timeline validation failed: {'; '.join(errors)}")
+
+
+def build_visual_timeline(
+    cfg: AppConfig,
+    slug: str,
+    use_scene_analysis: bool = True,
+    auto_transitions: bool = True,
+    ken_burns: bool = True
+) -> Timeline:
+    """Build a visual timeline with dynamic scene-based composition.
+
+    Args:
+        cfg: Application configuration
+        slug: Content slug identifier
+        use_scene_analysis: Whether to use scene analyzer
+        auto_transitions: Whether to add automatic transitions
+        ken_burns: Whether to add Ken Burns effects to images
+
+    Returns:
+        Generated timeline with visual shots
+    """
+    content_dir = cfg.directories.content_dir / slug
+    assets_dir = cfg.directories.assets_dir / slug
+
+    # Load metadata and manifest
+    metadata_path = content_dir / "metadata.json"
+    manifest_path = assets_dir / "manifest.json"
+    script_path = content_dir / "script.md"
+    audio_path = content_dir / "audio.wav"
+
+    if not metadata_path.exists():
+        raise FileNotFoundError(f"Metadata not found: {metadata_path}")
+
+    metadata = json.loads(metadata_path.read_text())
+
+    # Load asset manifest
+    assets = []
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text())
+        assets = manifest.get("assets", [])
+
+    # Analyze script into scenes if requested
+    if use_scene_analysis and script_path.exists():
+        from .scene_analyzer import SceneAnalyzer
+        analyzer = SceneAnalyzer()
+        script_text = script_path.read_text()
+
+        # Get audio duration if available
+        audio_duration = None
+        if audio_path.exists():
+            # Use ffprobe to get actual duration for perfect sync
+            try:
+                import subprocess
+                import json as json_lib
+                result = subprocess.run(
+                    ['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_format', str(audio_path)],
+                    capture_output=True, text=True, timeout=5
+                )
+                if result.returncode == 0:
+                    data = json_lib.loads(result.stdout)
+                    if 'format' in data and 'duration' in data['format']:
+                        audio_duration = float(data['format']['duration'])
+                        logger.info(f"Got audio duration from ffprobe: {audio_duration:.2f}s")
+            except Exception as e:
+                logger.warning(f"Failed to get audio duration with ffprobe: {e}, using estimate")
+                # Fallback to word count estimate
+                word_count = len(script_text.split())
+                audio_duration = (word_count / 150) * 60
+
+        scene_segments = analyzer.analyze_script(script_text, metadata, audio_duration)
+    else:
+        # Fall back to metadata sections
+        scene_segments = _segments_from_metadata(metadata)
+
+    # Build scene specifications with visual shots
+    scene_specs = _build_scene_specs(
+        scene_segments,
+        assets,
+        auto_transitions,
+        ken_burns,
+        cfg.video.fps  # Pass the configured FPS for Ken Burns effects
+    )
+
+    # Get music track
+    music_track = None
+    music_assets = [a for a in assets if a.get("type") == "music"]
+    if music_assets:
+        music_track = music_assets[0].get("local_path")
+
+    # Build timeline
+    builder = TimelineBuilder(cfg)
+    timeline = builder.build_advanced_timeline(
+        slug=slug,
+        scene_specs=scene_specs,
+        music_track=music_track,
+        narration_track=str(audio_path) if audio_path.exists() else None,
+        burn_subtitles=cfg.features.get("auto_subtitles", True),
+        subtitle_path=str(content_dir / "subtitles.srt") if (content_dir / "subtitles.srt").exists() else None,
+        width=cfg.video.width,
+        height=cfg.video.height,
+        fps=cfg.video.fps
+    )
+
+    # Save timeline
+    timeline_path = content_dir / "timeline.json"
+    with open(timeline_path, "w") as f:
+        json.dump(timeline, f, indent=2)
+
+    logger.info(f"Generated visual timeline with {len(scene_specs)} scenes for {slug}")
+    return timeline
+
+
+def _segments_from_metadata(metadata: Dict[str, Any]) -> List[SceneSegment]:
+    """Convert metadata sections to scene segments."""
+    from .scene_analyzer import SceneSegment
+    segments = []
+
+    for i, section in enumerate(metadata.get("sections", [])):
+        segment = SceneSegment(
+            index=i,
+            start_time=section.get("start_time", 0),
+            end_time=section.get("end_time", 0),
+            duration=section.get("end_time", 0) - section.get("start_time", 0),
+            text=section.get("text", ""),
+            section_marker=section.get("type"),
+            keywords=[],
+            search_queries=[],
+            key_phrase=None,
+            visual_cues=section.get("visual_cues", []),
+            b_roll_suggestions=section.get("b_roll_suggestions", [])
+        )
+        segments.append(segment)
+
+    return segments
+
+
+def _build_scene_specs(
+    segments: List[SceneSegment],
+    assets: List[Dict[str, Any]],
+    auto_transitions: bool,
+    ken_burns: bool,
+    fps: int = 30
+) -> List[SceneSpec]:
+    """Build scene specifications with visual shots."""
+    scene_specs = []
+
+    # Convert assets to VisualAsset objects
+    visual_assets = []
+    for asset in assets:
+        if asset.get("type") in ["image", "video"]:
+            va = VisualAsset(
+                path=Path(asset["local_path"]) if asset.get("local_path") else Path(asset["url"]),
+                title=asset.get("title", "Untitled"),
+                creator=asset.get("creator"),
+                license=asset.get("license"),
+                source_url=asset.get("source_url"),
+                attribution=asset.get("attribution"),
+                width=asset.get("width"),
+                height=asset.get("height"),
+                duration=asset.get("duration_seconds"),
+                content_hash=asset.get("sha256"),
+                asset_type=asset.get("type", "image")
+            )
+            visual_assets.append(va)
+
+    # Generate fallback visuals if no assets found
+    if not visual_assets:
+        logger.warning("No visual assets found, generating fallback visuals")
+        from .fallbacks import VisualFallbackGenerator
+
+        generator = VisualFallbackGenerator()
+        visual_assets = []
+
+        # Generate unique fallbacks for different scene types
+        scene_types = set(s.section_marker for s in segments if s.section_marker)
+        if not scene_types:
+            scene_types = {"default"}
+
+        # Create a pool of fallback assets
+        for i, scene_type in enumerate(scene_types):
+            for j in range(3):  # 3 variations per scene type
+                fallback_path = generator.generate_gradient_card(
+                    text=f"{scene_type.replace('_', ' ').title()}",
+                    scene_type=scene_type.lower() if scene_type else "default",
+                    seed=i * 10 + j
+                )
+
+                fallback_asset = VisualAsset(
+                    path=fallback_path,
+                    title=f"Fallback {scene_type} {j+1}",
+                    creator="System",
+                    license="cc0",
+                    source_url="",
+                    width=1920,
+                    height=1080,
+                    asset_type="image"
+                )
+                visual_assets.append(fallback_asset)
+
+        logger.info(f"Generated {len(visual_assets)} fallback visuals")
+
+    # Assign shots to each scene
+    for segment in segments:
+        spec = SceneSpec(
+            scene_id=f"scene_{segment.index}",
+            scene_index=segment.index,
+            start_time=segment.start_time,
+            end_time=segment.end_time,
+            duration=segment.duration,
+            key_phrase=segment.key_phrase,
+            scene_type=segment.section_marker
+        )
+
+        # Determine number of shots based on duration
+        if segment.duration <= 7:
+            num_shots = 1
+        elif segment.duration <= 15:
+            num_shots = 2
+        else:
+            num_shots = min(3, int(segment.duration / 8))
+
+        shot_duration = segment.duration / num_shots
+
+        # Select assets for this scene
+        selected_assets = _select_assets_for_scene(
+            segment,
+            visual_assets,
+            num_shots
+        )
+
+        # Create shots
+        for i in range(num_shots):
+            asset = selected_assets[i % len(selected_assets)] if selected_assets else visual_assets[0]
+
+            shot = VisualShot(
+                asset=asset,
+                start_time=i * shot_duration,
+                duration=shot_duration,
+                overlay_text=segment.key_phrase if i == 0 else None
+            )
+
+            # Add Ken Burns to images
+            if ken_burns and asset.asset_type == "image":
+                shot.kenburns_effect = _generate_dynamic_ken_burns(
+                    shot_duration,
+                    fps,  # Use the fps parameter passed to the function
+                    segment.index + i
+                )
+
+            # Add transitions
+            if auto_transitions:
+                if i > 0:
+                    shot.transition_in = _select_transition(segment.scene_type)
+                if i == num_shots - 1 and segment.index < len(segments) - 1:
+                    shot.transition_out = _select_transition(segment.scene_type)
+
+            spec.shots.append(shot)
+
+        scene_specs.append(spec)
+
+    return scene_specs
+
+
+def _select_assets_for_scene(
+    segment: SceneSegment,
+    available_assets: List[VisualAsset],
+    num_needed: int
+) -> List[VisualAsset]:
+    """Select appropriate assets for a scene with smart scoring."""
+    if not available_assets:
+        # Generate fallbacks if no assets available
+        from .fallbacks import ensure_minimum_assets
+        return ensure_minimum_assets([], num_needed, segment.section_marker)
+
+    # Build search terms for matching
+    search_terms = set()
+    if segment.keywords:
+        search_terms.update(term.lower() for term in segment.keywords)
+    if segment.search_queries:
+        search_terms.update(query.lower() for query in segment.search_queries)
+    if segment.visual_cues:
+        search_terms.update(cue.lower() for cue in segment.visual_cues)
+    if segment.section_marker:
+        search_terms.add(segment.section_marker.lower())
+
+    # Score each asset
+    scored_assets = []
+    for asset in available_assets:
+        score = 0
+
+        # Build asset text for matching
+        asset_text = asset.title.lower() if asset.title else ""
+
+        # Check for matches
+        for term in search_terms:
+            if term in asset_text:
+                score += 10  # Exact match
+            else:
+                # Check word-level matches
+                term_words = term.split()
+                asset_words = asset_text.split()
+                matches = sum(1 for tw in term_words if any(tw in aw for aw in asset_words))
+                score += matches * 3
+
+        # Quality bonus for high resolution
+        if asset.width and asset.width >= 1920:
+            score += 5
+        elif asset.width and asset.width >= 1280:
+            score += 2
+
+        # License preference (prefer CC0/PD)
+        if asset.license and asset.license.lower() in ['cc0', 'pd', 'publicdomain']:
+            score += 3
+
+        scored_assets.append((score, asset))
+
+    # Sort by score (highest first)
+    scored_assets.sort(key=lambda x: x[0], reverse=True)
+
+    # Select with creator diversity
+    selected = []
+    used_creators = set()
+
+    for score, asset in scored_assets:
+        if len(selected) >= num_needed:
+            break
+
+        # Prefer diverse creators for variety
+        creator = asset.creator or "unknown"
+        if creator not in used_creators or len(selected) < num_needed // 2:
+            selected.append(asset)
+            used_creators.add(creator)
+
+    # Fill remaining slots if needed
+    if len(selected) < num_needed:
+        remaining = [asset for _, asset in scored_assets if asset not in selected]
+        selected.extend(remaining[:num_needed - len(selected)])
+
+    # Generate fallbacks if still not enough
+    if len(selected) < num_needed:
+        from .fallbacks import ensure_minimum_assets
+        selected = ensure_minimum_assets(selected, num_needed, segment.section_marker)
+
+    return selected
+
+
+def _generate_dynamic_ken_burns(
+    duration: float,
+    fps: int,
+    seed: int
+) -> ZoomPanEffect:
+    """Generate varied Ken Burns effects."""
+    random.seed(seed)  # Reproducible randomness
+
+    # Alternate between zoom in/out
+    zoom_in = seed % 2 == 0
+
+    if zoom_in:
+        zoom_start = 1.0
+        zoom_end = random.uniform(1.05, 1.2)
+    else:
+        zoom_start = random.uniform(1.05, 1.2)
+        zoom_end = 1.0
+
+    # Varied pan patterns
+    pan_patterns = [
+        (0.5, 0.5, 0.5, 0.5),  # Static
+        (0.3, 0.5, 0.7, 0.5),  # Left to right
+        (0.7, 0.5, 0.3, 0.5),  # Right to left
+        (0.5, 0.3, 0.5, 0.7),  # Top to bottom
+        (0.5, 0.7, 0.5, 0.3),  # Bottom to top
+        (0.3, 0.3, 0.7, 0.7),  # Diagonal
+        (0.7, 0.3, 0.3, 0.7),  # Reverse diagonal
+    ]
+
+    pan = random.choice(pan_patterns)
+
+    return ZoomPanEffect(
+        zoom_start=zoom_start,
+        zoom_end=zoom_end,
+        pan_x_start=pan[0],
+        pan_x_end=pan[2],
+        pan_y_start=pan[1],
+        pan_y_end=pan[3],
+        duration_frames=int(duration * fps)
+    )
+
+
+def _select_transition(scene_type: Optional[str]) -> str:
+    """Select appropriate transition based on scene type."""
+    if scene_type in ["HOOK", "TEASER"]:
+        return random.choice(["fade", "fadewhite"])
+    elif scene_type in ["PROOF", "DEMONSTRATION"]:
+        return random.choice(["dissolve", "fade"])  # Fixed: replaced "crossfade" with "fade"
+    elif scene_type in ["CTA", "OUTRO"]:
+        return random.choice(["fadeblack", "fade"])
+    else:
+        return random.choice(["fade", "dissolve", "wipeleft", "wiperight"])
 
 
 def infer_timeline_from_script(

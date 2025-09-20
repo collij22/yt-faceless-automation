@@ -1,0 +1,47 @@
+[
+  {
+    "timestamp": "2025-09-14T14:34:08.983799",
+    "session_id": "20250914_143408",
+    "stage": "SCRIPT",
+    "message": "Generating video script",
+    "data": null
+  },
+  {
+    "timestamp": "2025-09-14T14:34:08.984891",
+    "session_id": "20250914_143408",
+    "stage": "SCRIPT",
+    "message": "Script generated",
+    "data": {
+      "title": "5 Productivity Hacks That Actually Work",
+      "length": 876
+    }
+  },
+  {
+    "timestamp": "2025-09-14T14:34:09.985911",
+    "session_id": "20250914_143408",
+    "stage": "TTS",
+    "message": "Generating text-to-speech audio",
+    "data": null
+  },
+  {
+    "timestamp": "2025-09-14T14:34:10.148827",
+    "session_id": "20250914_143408",
+    "stage": "ERROR",
+    "message": "Webhook failed: 500",
+    "data": "{\"message\":\"Error in workflow\"}"
+  },
+  {
+    "timestamp": "2025-09-14T14:34:10.149583",
+    "session_id": "20250914_143408",
+    "stage": "TTS",
+    "message": "TTS generation failed",
+    "data": null
+  },
+  {
+    "timestamp": "2025-09-14T14:34:10.150657",
+    "session_id": "20250914_143408",
+    "stage": "ERROR",
+    "message": "Pipeline stopped: TTS failed",
+    "data": null
+  }
+]

@@ -1,0 +1,81 @@
+{
+  "status": "degraded",
+  "warnings": [
+    "Analytics webhook did not return 2xx (may require API key in n8n)"
+  ],
+  "errors": [],
+  "env": {
+    "N8N_BASE_URL": "http://localhost:5678",
+    "N8N_TTS_WEBHOOK_URL": "http://localhost:5678/webhook/tts-generation",
+    "N8N_UPLOAD_WEBHOOK_URL": "http://localhost:5678/webhook/youtube-upload",
+    "YOUTUBE_ANALYTICS_WEBHOOK_URL": "https://example.com/analytics",
+    "YOUTUBE_API_KEY": "AIza...2dT0",
+    "FIRECRAWL_API_KEY": "fc-d...3dc4",
+    "BRAVE_SEARCH_API_KEY": "BSAa...VT4o"
+  },
+  "endpoints": {
+    "n8n_base": {
+      "name": "n8n_base",
+      "url": "http://localhost:5678",
+      "ok": true,
+      "status": 200,
+      "error": null,
+      "details": null
+    },
+    "tts_webhook": {
+      "name": "tts_webhook",
+      "url": "http://localhost:5678/webhook/tts-generation",
+      "ok": true,
+      "status": 200,
+      "error": null,
+      "details": {
+        "response": {
+          "status": "success",
+          "message": "TTS generation completed",
+          "request": {},
+          "output": {
+            "total_chunks": 1,
+            "files": [
+              null
+            ]
+          },
+          "processing": {
+            "timestamp": "2025-09-20T18:20:16.190Z"
+          }
+        }
+      }
+    },
+    "upload_webhook": {
+      "name": "upload_webhook",
+      "url": "http://localhost:5678/webhook/youtube-upload",
+      "ok": true,
+      "status": 200,
+      "error": null,
+      "details": {
+        "response": {
+          "status": "error",
+          "message": "Missing required fields: title and description",
+          "timestamp": "2025-09-20T18:20:16.266Z"
+        }
+      }
+    },
+    "analytics_webhook": {
+      "name": "analytics_webhook",
+      "url": "https://example.com/analytics",
+      "ok": false,
+      "status": 403,
+      "error": null,
+      "details": {
+        "response": "<HTML><HEAD>\n<TITLE>Access Denied</TITLE>\n</HEAD><BODY>\n<H1>Access Denied</H1>\n \nYou don't have permission to access \"http&#58;&#47;&#47;example&#46;com&#47;analytics\" on this server.<P>\nReference&#32;&#35;18&#46;d020c817&#46;1758392416&#46;48bed91\n<P>https&#58;&#47;&#47;errors&#46;edgesuite&#46;net&#47;18&#46;d020c817&#46;1758392416&#46;48bed91</P>\n</BODY>\n</HTML>\n"
+      }
+    },
+    "firecrawl_api": {
+      "name": "firecrawl_api",
+      "url": "https://api.firecrawl.dev/",
+      "ok": true,
+      "status": 200,
+      "error": null,
+      "details": null
+    }
+  }
+}

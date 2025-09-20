@@ -189,6 +189,17 @@
           }
         ]
       ]
+    },
+    "Error Response": {
+      "main": [
+        [
+          {
+            "node": "Final Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   }
 }

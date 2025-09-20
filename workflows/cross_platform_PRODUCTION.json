@@ -177,6 +177,17 @@
           }
         ]
       ]
+    },
+    "Error Response": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   }
 }

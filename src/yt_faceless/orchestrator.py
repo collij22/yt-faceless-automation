@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
-from .assembly import ClipSpec, assemble_video
+from .assembly import ClipSpec, assemble_video, assemble_from_timeline
 from .config import AppConfig
 from .core.config import load_config as load_enhanced_config
 from .core.errors import ConfigurationError
@@ -64,6 +64,114 @@ class Orchestrator:
         clips = [ClipSpec(path=p) for p in clip_paths]
         assemble_video(self.config, clips, audio_path, output_path)
         logger.info("Assembled video at %s", output_path)
+
+    def produce_with_visuals(
+        self,
+        slug: str,
+        use_scene_analysis: bool = True,
+        parallel: bool = True,
+        overwrite: bool = False
+    ) -> Path:
+        """Run complete visual production pipeline.
+
+        Args:
+            slug: Content slug identifier
+            use_scene_analysis: Use intelligent scene analysis
+            parallel: Process in parallel where possible
+            overwrite: Overwrite existing files
+
+        Returns:
+            Path to final video
+        """
+        from .production.assets import plan_assets_for_slug, download_assets
+        from .production.timeline import build_visual_timeline
+        from .production.tts import voiceover_for_slug
+        from .production.subtitles import write_subtitles_for_slug
+        import asyncio
+
+        content_dir = self.enhanced_config.directories.content_dir / slug
+        output_path = content_dir / "final.mp4"
+
+        # Skip if already exists and not overwriting
+        if output_path.exists() and not overwrite:
+            logger.info(f"Video already exists: {output_path}")
+            return output_path
+
+        logger.info(f"Starting visual production pipeline for {slug}")
+
+        # Step 1: Generate TTS if needed
+        audio_path = content_dir / "audio.wav"
+        if not audio_path.exists() or overwrite:
+            logger.info("Generating voiceover...")
+            audio_path = voiceover_for_slug(
+                self.enhanced_config,
+                slug,
+                overwrite=overwrite
+            )
+
+        # Step 2: Generate subtitles if needed
+        subtitle_path = content_dir / "subtitles.srt"
+        if not subtitle_path.exists() or overwrite:
+            logger.info("Generating subtitles...")
+            subtitle_path = write_subtitles_for_slug(
+                self.enhanced_config,
+                slug,
+                format="srt"
+            )
+
+        # Step 3: Plan and fetch assets
+        manifest_path = self.enhanced_config.directories.assets_dir / slug / "manifest.json"
+        if not manifest_path.exists() or overwrite:
+            logger.info("Planning visual assets...")
+            manifest = plan_assets_for_slug(
+                self.enhanced_config,
+                slug,
+                max_assets=30
+            )
+
+            logger.info(f"Fetching {len(manifest['assets'])} assets...")
+
+            async def download():
+                return await download_assets(
+                    self.enhanced_config,
+                    manifest,
+                    parallel=parallel,
+                    force_download=overwrite
+                )
+
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                manifest = loop.run_until_complete(download())
+            finally:
+                loop.close()
+
+        # Step 4: Build visual timeline
+        timeline_path = content_dir / "timeline.json"
+        if not timeline_path.exists() or overwrite:
+            logger.info("Building visual timeline...")
+            timeline = build_visual_timeline(
+                self.enhanced_config,
+                slug,
+                use_scene_analysis=use_scene_analysis,
+                auto_transitions=True,
+                ken_burns=True
+            )
+        else:
+            with open(timeline_path) as f:
+                timeline = json.load(f)
+
+        # Step 5: Assemble final video
+        logger.info("Assembling video with visuals...")
+        output_path = assemble_from_timeline(
+            self.enhanced_config,
+            slug,
+            timeline=timeline,
+            output_path=output_path
+        )
+
+        logger.info(f"✅ Visual production complete: {output_path}")
+        return output_path
 
     # Phase 6: Upload & Publishing
 
@@ -142,6 +250,27 @@ class Orchestrator:
                 desc_text = raw_desc.get("text", "")
             else:
                 desc_text = str(raw_desc)
+
+            # Check for attribution requirement and append if needed
+            attribution_path = self.enhanced_config.directories.assets_dir / slug / "ATTRIBUTION.txt"
+            if attribution_path.exists():
+                try:
+                    attribution_text = attribution_path.read_text(encoding="utf-8")
+
+                    # Only append if attribution is actually required
+                    if attribution_text and "No attribution required" not in attribution_text:
+                        # Add divider and attribution block
+                        attribution_block = f"\n\n{'─' * 40}\n\n{attribution_text}"
+                        desc_text = desc_text + attribution_block
+                        logger.info("Added attribution to video description")
+
+                        # Clamp to YouTube's 5000 char limit (use 4800 for safety)
+                        if len(desc_text) > 4800:
+                            original_length = len(desc_text)
+                            desc_text = desc_text[:4797] + "..."
+                            logger.warning(f"Truncated description from {original_length} to 4800 chars")
+                except Exception as e:
+                    logger.error(f"Failed to read attribution file: {e}")
 
             # Forward monetization settings from metadata
             monetization_from_meta = metadata.get("monetization_settings") or {}

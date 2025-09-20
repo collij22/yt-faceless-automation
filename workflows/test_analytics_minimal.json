@@ -1,0 +1,73 @@
+{
+  "name": "Test Analytics (Minimal)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "test-analytics",
+        "responseMode": "responseNode",
+        "responseNode": "Webhook Response",
+        "options": {}
+      },
+      "id": "webhook_test",
+      "name": "Webhook Test",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Simple test function\\nreturn [{ json: { status: 'success', message: 'Test webhook working', data: $json } }];"
+      },
+      "id": "test_function",
+      "name": "Test Function",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        450,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "allEntries",
+        "options": {}
+      },
+      "id": "webhook_response_test",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        650,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "webhook_test": {
+      "main": [
+        [
+          {
+            "node": "test_function",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "test_function": {
+      "main": [
+        [
+          {
+            "node": "webhook_response_test",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

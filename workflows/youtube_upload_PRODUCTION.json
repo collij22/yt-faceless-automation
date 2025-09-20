@@ -310,7 +310,7 @@
     },
     {
       "parameters": {
-        "functionCode": "// Final response aggregation\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    status: 'success',\n    message: 'Video uploaded successfully',\n    video: {\n      id: data.video_id,\n      url: data.video_url,\n      title: data.title,\n      description: data.description,\n      tags: JSON.parse(data.tags),\n      privacy: data.privacy,\n      category_id: data.category_id\n    },\n    thumbnail: {\n      status: data.thumbnail_status,\n      url: data.thumbnail_url\n    },\n    playlist: {\n      status: data.playlist_status || 'none',\n      id: data.playlist_id\n    },\n    metadata: {\n      made_for_kids: data.made_for_kids,\n      upload_status: data.upload_status,\n      timestamp: new Date().toISOString()\n    }\n  }\n}];"
+        "functionCode": "// Final response aggregation with error handling\ntry {\n  const data = $input.first().json;\n  \n  // Check if this is an error response\n  if (data.status === 'error') {\n    return [{\n      json: {\n        status: 'error',\n        message: data.message || 'Unknown error occurred',\n        timestamp: new Date().toISOString()\n      }\n    }];\n  }\n  \n  // Handle success response\n  return [{\n    json: {\n      status: 'success',\n      message: 'Video uploaded successfully',\n      video: {\n        id: data.video_id || 'unknown',\n        url: data.video_url || '',\n        title: data.title || '',\n        description: data.description || '',\n        tags: data.tags ? (typeof data.tags === 'string' ? JSON.parse(data.tags) : data.tags) : [],\n        privacy: data.privacy || 'private',\n        category_id: data.category_id || '22'\n      },\n      thumbnail: {\n        status: data.thumbnail_status || 'none',\n        url: data.thumbnail_url || ''\n      },\n      playlist: {\n        status: data.playlist_status || 'none',\n        id: data.playlist_id || ''\n      },\n      metadata: {\n        made_for_kids: data.made_for_kids || false,\n        upload_status: data.upload_status || 'initiated',\n        timestamp: new Date().toISOString()\n      }\n    }\n  }];\n} catch (error) {\n  return [{\n    json: {\n      status: 'error',\n      message: 'Final response processing failed: ' + error.message,\n      timestamp: new Date().toISOString()\n    }\n  }];\n}"
       },
       "id": "final_response",
       "name": "Final Response",
@@ -455,6 +455,17 @@
       ]
     },
     "No Playlist": {
+      "main": [
+        [
+          {
+            "node": "Final Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Response": {
       "main": [
         [
           {

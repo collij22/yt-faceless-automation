@@ -1,0 +1,80 @@
+[
+  {
+    "timestamp": "2025-09-14T18:01:10.369482",
+    "session_id": "20250914_180110",
+    "stage": "SCRIPT",
+    "message": "Generating video script",
+    "data": null
+  },
+  {
+    "timestamp": "2025-09-14T18:01:10.370617",
+    "session_id": "20250914_180110",
+    "stage": "SCRIPT",
+    "message": "Script generated",
+    "data": {
+      "title": "5 Productivity Hacks That Actually Work",
+      "length": 876
+    }
+  },
+  {
+    "timestamp": "2025-09-14T18:01:11.371207",
+    "session_id": "20250914_180110",
+    "stage": "TTS",
+    "message": "Generating text-to-speech audio",
+    "data": null
+  },
+  {
+    "timestamp": "2025-09-14T18:01:11.436749",
+    "session_id": "20250914_180110",
+    "stage": "TTS",
+    "message": "TTS generation successful",
+    "data": {
+      "total_chunks": 1,
+      "files": [
+        null
+      ]
+    }
+  },
+  {
+    "timestamp": "2025-09-14T18:01:12.438956",
+    "session_id": "20250914_180110",
+    "stage": "ASSEMBLY",
+    "message": "Preparing video assembly",
+    "data": null
+  },
+  {
+    "timestamp": "2025-09-14T18:01:12.440965",
+    "session_id": "20250914_180110",
+    "stage": "ASSEMBLY",
+    "message": "Video assembly prepared",
+    "data": {
+      "video_file": "content\\20250914_180110\\final_video.mp4",
+      "duration": 120,
+      "resolution": "1920x1080",
+      "fps": 30,
+      "audio_file": null,
+      "assembled_at": "2025-09-14T18:01:12.438956"
+    }
+  },
+  {
+    "timestamp": "2025-09-14T18:01:13.441966",
+    "session_id": "20250914_180110",
+    "stage": "UPLOAD",
+    "message": "Uploading video to YouTube",
+    "data": null
+  },
+  {
+    "timestamp": "2025-09-14T18:01:13.520465",
+    "session_id": "20250914_180110",
+    "stage": "UPLOAD",
+    "message": "Upload failed",
+    "data": null
+  },
+  {
+    "timestamp": "2025-09-14T18:01:13.520465",
+    "session_id": "20250914_180110",
+    "stage": "ERROR",
+    "message": "Pipeline stopped: Upload failed",
+    "data": null
+  }
+]

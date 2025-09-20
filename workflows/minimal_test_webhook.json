@@ -1,0 +1,47 @@
+{
+  "name": "Minimal Test Webhook",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "minimal-test",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Simple test function that always returns JSON\nreturn [{\n  json: {\n    status: 'success',\n    message: 'Minimal test webhook is working',\n    test_type: 'lastNode_responseMode',\n    timestamp: new Date().toISOString(),\n    received_data: $json\n  }\n}];"
+      },
+      "id": "test_function",
+      "name": "Test Function",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        600,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "webhook": {
+      "main": [
+        [
+          {
+            "node": "test_function",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

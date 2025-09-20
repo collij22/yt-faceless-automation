@@ -460,6 +460,17 @@
           }
         ]
       ]
+    },
+    "Error Response": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   }
 }

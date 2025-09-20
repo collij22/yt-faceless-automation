@@ -187,8 +187,7 @@
     },
     {
       "parameters": {
-        "mode": "combine",
-        "combinationMode": "multiplex",
+        "mode": "append",
         "options": {}
       },
       "id": "merge_demo",
@@ -252,7 +251,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 2,
       "position": [
-        1650,
+        1500,
         300
       ]
     },
@@ -274,143 +273,168 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 2,
       "position": [
-        1650,
+        1500,
         500
       ]
     },
     {
       "parameters": {
-        "functionCode": "// Generate insights and final response\nconst data = $input.first().json;\n\n// Generate insights based on metrics\nconst insights = [];\nconst recommendations = [];\n\nif (data.ctr_percentage < 5) {\n  insights.push('Low click-through rate detected');\n  recommendations.push('Improve thumbnails and titles');\n}\n\nif (data.avg_view_duration < 120) {\n  insights.push('Short average view duration');\n  recommendations.push('Improve video hooks and pacing');\n}\n\nif (data.subscriber_change < 0) {\n  insights.push('Losing subscribers');\n  recommendations.push('Review content quality and consistency');\n}\n\nreturn [{\n  json: {\n    status: 'success',\n    message: 'Analytics retrieved successfully',\n    channel: {\n      id: data.channel_id,\n      period: {\n        start: data.start_date,\n        end: data.end_date,\n        range: data.date_range\n      }\n    },\n    metrics: {\n      views: data.total_views,\n      watch_hours: data.total_watch_hours,\n      subscriber_change: data.subscriber_change,\n      revenue: parseFloat(data.estimated_revenue),\n      avg_view_duration: data.avg_view_duration,\n      ctr: parseFloat(data.ctr_percentage)\n    },\n    demographics: data.top_age_group ? {\n      age_group: data.top_age_group,\n      gender_split: {\n        male: data.male_percentage,\n        female: data.female_percentage\n      },\n      top_location: data.top_country\n    } : null,\n    traffic: data.top_source ? {\n      top_source: data.top_source,\n      search_percentage: data.search_percentage,\n      suggested_percentage: data.suggested_percentage,\n      top_search_term: data.top_search_term\n    } : null,\n    insights: insights.length > 0 ? insights : ['Channel performing within normal parameters'],\n    recommendations: recommendations.length > 0 ? recommendations : ['Continue current strategy'],\n    generated_at: new Date().toISOString()\n  }\n}];"
+        "mode": "append",
+        "options": {}
+      },
+      "id": "merge_traffic",
+      "name": "Merge Traffic",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [
+        1700,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Generate insights and final response with robust error handling\ntry {\n  // Get all input items and merge their data\n  const allItems = $input.all();\n  if (!allItems || allItems.length === 0) {\n    throw new Error('No input data received');\n  }\n  \n  // Combine all data from all input items\n  const data = {};\n  allItems.forEach(item => {\n    if (item && item.json) {\n      Object.assign(data, item.json);\n    }\n  });\n  \n  // Generate insights based on metrics\n  const insights = [];\n  const recommendations = [];\n  \n  // Safe number checking with defaults\n  const ctr = parseFloat(data.ctr_percentage) || 0;\n  const avgDuration = parseInt(data.avg_view_duration) || 0;\n  const subChange = parseInt(data.subscriber_change) || 0;\n  \n  if (ctr < 5) {\n    insights.push('Low click-through rate detected');\n    recommendations.push('Improve thumbnails and titles');\n  }\n  \n  if (avgDuration < 120) {\n    insights.push('Short average view duration');\n    recommendations.push('Improve video hooks and pacing');\n  }\n  \n  if (subChange < 0) {\n    insights.push('Losing subscribers');\n    recommendations.push('Review content quality and consistency');\n  }\n  \n  return [{\n    json: {\n      status: 'success',\n      message: 'Analytics retrieved successfully',\n      debug_data_keys: Object.keys(data), // Debug info\n      channel: {\n        id: data.channel_id || 'unknown',\n        period: {\n          start: data.start_date || new Date().toISOString().split('T')[0],\n          end: data.end_date || new Date().toISOString().split('T')[0],\n          range: data.date_range || 'unknown'\n        }\n      },\n      metrics: {\n        views: parseInt(data.total_views) || 0,\n        watch_hours: parseInt(data.total_watch_hours) || 0,\n        subscriber_change: subChange,\n        revenue: parseFloat(data.estimated_revenue) || 0.0,\n        avg_view_duration: avgDuration,\n        ctr: ctr\n      },\n      demographics: data.top_age_group ? {\n        age_group: data.top_age_group,\n        gender_split: {\n          male: parseInt(data.male_percentage) || 0,\n          female: parseInt(data.female_percentage) || 0\n        },\n        top_location: data.top_country || 'Unknown'\n      } : null,\n      traffic: data.top_source ? {\n        top_source: data.top_source,\n        search_percentage: parseInt(data.search_percentage) || 0,\n        suggested_percentage: parseInt(data.suggested_percentage) || 0,\n        top_search_term: data.top_search_term || 'N/A'\n      } : null,\n      insights: insights.length > 0 ? insights : ['Channel performing within normal parameters'],\n      recommendations: recommendations.length > 0 ? recommendations : ['Continue current strategy'],\n      generated_at: new Date().toISOString()\n    }\n  }];\n} catch (error) {\n  return [{\n    json: {\n      status: 'error',\n      message: 'Analytics processing failed: ' + error.message,\n      debug_error: error.stack,\n      generated_at: new Date().toISOString()\n    }\n  }];\n}"
       },
       "id": "generate_insights",
       "name": "Generate Insights",
       "type": "n8n-nodes-base.function",
       "typeVersion": 1,
       "position": [
-        1850,
+        1900,
         400
       ]
     }
   ],
   "connections": {
-    "Webhook": {
+    "webhook": {
       "main": [
         [
           {
-            "node": "Prepare Parameters",
+            "node": "prepare",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Prepare Parameters": {
+    "prepare": {
       "main": [
         [
           {
-            "node": "Mock Metrics",
+            "node": "mock_metrics",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Mock Metrics": {
+    "mock_metrics": {
       "main": [
         [
           {
-            "node": "Check Demographics",
+            "node": "check_demo",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Check Demographics": {
+    "check_demo": {
       "main": [
         [
           {
-            "node": "Add Demographics",
+            "node": "add_demo",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "No Demographics",
+            "node": "no_demo",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Add Demographics": {
+    "add_demo": {
       "main": [
         [
           {
-            "node": "Merge Demographics",
+            "node": "merge_demo",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "No Demographics": {
+    "no_demo": {
       "main": [
         [
           {
-            "node": "Merge Demographics",
+            "node": "merge_demo",
             "type": "main",
             "index": 1
           }
         ]
       ]
     },
-    "Merge Demographics": {
+    "merge_demo": {
       "main": [
         [
           {
-            "node": "Check Traffic",
+            "node": "check_traffic",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Check Traffic": {
+    "check_traffic": {
       "main": [
         [
           {
-            "node": "Add Traffic Sources",
+            "node": "add_traffic",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "No Traffic",
+            "node": "no_traffic",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Add Traffic Sources": {
+    "add_traffic": {
       "main": [
         [
           {
-            "node": "Generate Insights",
+            "node": "merge_traffic",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "No Traffic": {
+    "no_traffic": {
       "main": [
         [
           {
-            "node": "Generate Insights",
+            "node": "merge_traffic",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "merge_traffic": {
+      "main": [
+        [
+          {
+            "node": "generate_insights",
             "type": "main",
             "index": 0
           }

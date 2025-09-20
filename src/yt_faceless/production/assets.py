@@ -8,6 +8,7 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import shutil
 import urllib.parse
 from datetime import datetime
@@ -19,6 +20,8 @@ from ..core.config import AppConfig
 from ..core.errors import AssetError, ConfigurationError
 from ..integrations.n8n_client import N8NClient
 from ..utils.retry import retry_with_backoff
+from ..utils.license import LicenseValidator, format_attribution
+from .asset_sources import OpenverseSource, WikimediaSource
 
 logger = logging.getLogger(__name__)
 
@@ -99,19 +102,26 @@ class AssetManager:
 
         # Default license filter
         if license_filter is None:
-            license_filter = ["CC0", "PD", "CC-BY", "RF"]
+            license_filter = ["CC0", "PD", "CC-BY", "CC-BY-SA"]
 
         # Search via different sources
-        # Note: In production, these would call actual APIs
-        # For now, returning mock data for testing
-
         if asset_type == "image":
-            assets.extend(self._search_unsplash(query, license_filter, max_results))
-            assets.extend(self._search_pexels(query, license_filter, max_results))
+            # Use free sources first
+            assets.extend(self._search_openverse(query, license_filter, max_results))
+            assets.extend(self._search_wikimedia(query, license_filter, max_results))
+
+            # Optional paid sources (if API keys configured)
+            if os.getenv("PEXELS_API_KEY"):
+                assets.extend(self._search_pexels(query, license_filter, max_results))
+            if os.getenv("PIXABAY_API_KEY"):
+                assets.extend(self._search_pixabay(query, license_filter, max_results))
+
         elif asset_type == "video":
+            # For now, keep mock implementations for video
             assets.extend(self._search_pexels_videos(query, license_filter, max_results))
             assets.extend(self._search_pixabay(query, license_filter, max_results))
         elif asset_type == "music":
+            # For now, keep mock implementation for music
             assets.extend(self._search_freesound(query, license_filter, max_results))
 
         # Sort by license priority
@@ -122,14 +132,79 @@ class AssetManager:
 
         return assets[:max_results]
 
-    def _search_unsplash(self, query: str, licenses: List[str], limit: int) -> List[AssetEntry]:
-        """Search Unsplash for images (mock implementation)."""
-        # In production, use Unsplash API
-        return []
+    def _search_openverse(self, query: str, licenses: List[str], limit: int) -> List[AssetEntry]:
+        """Search Openverse for free CC images."""
+        try:
+            source = OpenverseSource(cache_dir=self.assets_dir.parent / ".cache" / "assets")
+            results = source.search(query, limit=limit)
+
+            # Convert to AssetEntry format
+            entries = []
+            for result in results:
+                # Only include if license allows commercial use and modification
+                if not LicenseValidator.is_commercial_safe(result.license):
+                    continue
+                if not LicenseValidator.allows_modification(result.license):
+                    continue
+
+                entry = AssetEntry(
+                    type="image",
+                    url=result.url,
+                    local_path="",  # Will be set during download
+                    sha256="",  # Will be calculated during download
+                    license=result.license.upper(),
+                    attribution=result.attribution,
+                    duration_seconds=None,
+                    resolution=result.resolution,
+                    file_size_bytes=0,  # Will be set during download
+                    source="Openverse",
+                    tags=result.tags
+                )
+                entries.append(entry)
+
+            return entries
+        except Exception as e:
+            logger.error(f"Openverse search failed: {e}")
+            return []
+
+    def _search_wikimedia(self, query: str, licenses: List[str], limit: int) -> List[AssetEntry]:
+        """Search Wikimedia Commons for free images."""
+        try:
+            source = WikimediaSource(cache_dir=self.assets_dir.parent / ".cache" / "assets")
+            results = source.search(query, limit=limit)
+
+            # Convert to AssetEntry format
+            entries = []
+            for result in results:
+                # Only include if license allows commercial use and modification
+                if not LicenseValidator.is_commercial_safe(result.license):
+                    continue
+                if not LicenseValidator.allows_modification(result.license):
+                    continue
+
+                entry = AssetEntry(
+                    type="image",
+                    url=result.url,
+                    local_path="",  # Will be set during download
+                    sha256="",  # Will be calculated during download
+                    license=result.license.upper(),
+                    attribution=result.attribution,
+                    duration_seconds=None,
+                    resolution=result.resolution,
+                    file_size_bytes=0,  # Will be set during download
+                    source="Wikimedia Commons",
+                    tags=result.tags
+                )
+                entries.append(entry)
+
+            return entries
+        except Exception as e:
+            logger.error(f"Wikimedia search failed: {e}")
+            return []
 
     def _search_pexels(self, query: str, licenses: List[str], limit: int) -> List[AssetEntry]:
-        """Search Pexels for images (mock implementation)."""
-        # In production, use Pexels API
+        """Search Pexels for images (requires API key)."""
+        # TODO: Implement Pexels API when key is available
         return []
 
     def _search_pexels_videos(self, query: str, licenses: List[str], limit: int) -> List[AssetEntry]:
@@ -332,6 +407,10 @@ async def download_assets(
         a["file_size_bytes"] for a in updated_assets
     )
 
+    # Apply perceptual hash deduplication to prevent repetitive imagery
+    manifest["assets"] = deduplicate_assets_by_phash(manifest["assets"])
+    logger.info(f"Deduplicated to {len(manifest['assets'])} unique assets")
+
     # Save updated manifest
     manifest_path = assets_dir / "manifest.json"
     with open(manifest_path, "w") as f:
@@ -443,6 +522,109 @@ def _calculate_file_hash(file_path: Path) -> str:
     return sha256.hexdigest()
 
 
+def _compute_perceptual_hash(image_path: Path) -> Optional[str]:
+    """Compute perceptual hash for image deduplication.
+
+    Args:
+        image_path: Path to image file
+
+    Returns:
+        Perceptual hash as hex string or None if not available
+    """
+    try:
+        # Check if it's an image file
+        if image_path.suffix.lower() not in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']:
+            return None
+
+        # Try to use imagehash library if available
+        import imagehash
+        from PIL import Image
+
+        with Image.open(image_path) as img:
+            # Use average hash for speed, can switch to dhash for better accuracy
+            hash_obj = imagehash.average_hash(img, hash_size=8)
+            return str(hash_obj)
+
+    except ImportError:
+        logger.debug("imagehash not installed, using file hash for deduplication")
+        # Fall back to using file content hash
+        return _calculate_file_hash(image_path)[:16]
+    except Exception as e:
+        logger.debug(f"Could not compute perceptual hash for {image_path}: {e}")
+        return None
+
+
+def deduplicate_assets_by_phash(assets: List[AssetEntry], threshold: int = 5) -> List[AssetEntry]:
+    """Remove visually similar assets using perceptual hashing.
+
+    Args:
+        assets: List of assets to deduplicate
+        threshold: Similarity threshold (lower = more similar)
+
+    Returns:
+        Deduplicated list of assets
+    """
+    if not assets:
+        return assets
+
+    try:
+        import imagehash
+    except ImportError:
+        logger.debug("imagehash not available, using URL-based deduplication")
+        # Fallback to URL-based deduplication to still remove exact duplicates
+        seen_urls = set()
+        unique_assets = []
+        for asset in assets:
+            url_key = asset.get("url", "")
+            if url_key and url_key not in seen_urls:
+                unique_assets.append(asset)
+                seen_urls.add(url_key)
+            elif not url_key:  # Keep assets without URLs
+                unique_assets.append(asset)
+        logger.info(f"URL deduplicated {len(assets)} assets to {len(unique_assets)} unique")
+        return unique_assets
+
+    unique_assets = []
+    seen_hashes = []
+
+    for asset in assets:
+        # Only process images
+        if asset.get("type") != "image":
+            unique_assets.append(asset)
+            continue
+
+        # Get or compute perceptual hash
+        phash_str = asset.get("phash")
+        if not phash_str and asset.get("local_path"):
+            phash_str = _compute_perceptual_hash(Path(asset["local_path"]))
+            if phash_str:
+                asset["phash"] = phash_str
+
+        if phash_str:
+            try:
+                hash_obj = imagehash.hex_to_hash(phash_str)
+
+                # Check similarity with existing hashes
+                is_duplicate = False
+                for seen_hash in seen_hashes:
+                    if hash_obj - seen_hash < threshold:
+                        is_duplicate = True
+                        logger.debug(f"Skipping visually similar asset: {asset.get('title', 'Unknown')}")
+                        break
+
+                if not is_duplicate:
+                    unique_assets.append(asset)
+                    seen_hashes.append(hash_obj)
+            except Exception as e:
+                logger.debug(f"Error comparing perceptual hashes: {e}")
+                unique_assets.append(asset)
+        else:
+            unique_assets.append(asset)
+
+    logger.info(f"Deduplicated {len(assets)} assets to {len(unique_assets)} unique visuals")
+    return unique_assets
+
+
 def _get_media_resolution(file_path: Path) -> Optional[tuple[int, int]]:
     """Get resolution of image/video file.
 
@@ -452,8 +634,40 @@ def _get_media_resolution(file_path: Path) -> Optional[tuple[int, int]]:
     Returns:
         (width, height) tuple or None
     """
-    # In production, use ffprobe or PIL
-    # For now, return mock data
+    if not file_path.exists():
+        return None
+
+    # Try PIL for images first
+    if file_path.suffix.lower() in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']:
+        try:
+            from PIL import Image
+            with Image.open(file_path) as img:
+                return img.size  # (width, height)
+        except Exception as e:
+            logger.debug(f"PIL failed to get resolution for {file_path}: {e}")
+
+    # Try ffprobe for videos or as fallback
+    try:
+        import subprocess
+        import json
+
+        cmd = [
+            'ffprobe',
+            '-v', 'quiet',
+            '-print_format', 'json',
+            '-show_streams',
+            str(file_path)
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            for stream in data.get('streams', []):
+                if 'width' in stream and 'height' in stream:
+                    return (stream['width'], stream['height'])
+    except Exception as e:
+        logger.debug(f"ffprobe failed to get resolution for {file_path}: {e}")
+
     return None
 
 
@@ -466,8 +680,34 @@ def _get_media_duration(file_path: Path) -> Optional[float]:
     Returns:
         Duration in seconds or None
     """
-    # In production, use ffprobe
-    # For now, return mock data
+    if not file_path.exists():
+        return None
+
+    # Images have no duration
+    if file_path.suffix.lower() in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']:
+        return None
+
+    # Use ffprobe for audio/video
+    try:
+        import subprocess
+        import json
+
+        cmd = [
+            'ffprobe',
+            '-v', 'quiet',
+            '-print_format', 'json',
+            '-show_format',
+            str(file_path)
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            if 'format' in data and 'duration' in data['format']:
+                return float(data['format']['duration'])
+    except Exception as e:
+        logger.debug(f"ffprobe failed to get duration for {file_path}: {e}")
+
     return None
 
 
@@ -478,43 +718,25 @@ def write_attribution(manifest: AssetManifest, output_path: Path) -> None:
         manifest: Asset manifest
         output_path: Path to write attribution file
     """
-    lines = [
-        "ASSET ATTRIBUTION",
-        "=" * 50,
-        "",
-        f"Generated: {datetime.now().isoformat()}",
-        f"Project: {manifest['slug']}",
-        "",
-        "The following assets require attribution:",
-        "",
-    ]
+    from ..utils.license import generate_attribution_block
 
-    attribution_count = 0
+    # Generate markdown attribution
+    attribution_text = generate_attribution_block(manifest["assets"], format="markdown")
 
-    for asset in manifest["assets"]:
-        if asset["license"] not in ["CC0", "PD"]:
-            attribution_count += 1
-            lines.extend([
-                f"{attribution_count}. {Path(asset['local_path']).name}",
-                f"   Type: {asset['type']}",
-                f"   License: {asset['license']}",
-                f"   Source: {asset.get('source', 'Unknown')}",
-            ])
+    if not attribution_text:
+        attribution_text = "## Media Attribution\n\nAll media assets used are in the public domain (CC0/PD).\nNo attribution required."
 
-            if asset.get("attribution"):
-                lines.append(f"   Attribution: {asset['attribution']}")
+    # Add header
+    full_text = f"""# Asset Attribution
 
-            lines.append(f"   URL: {asset['url']}")
-            lines.append("")
+Generated: {datetime.now().isoformat()}
+Project: {manifest['slug']}
 
-    if attribution_count == 0:
-        lines.extend([
-            "No attribution required for assets in this project.",
-            "All assets are CC0 or Public Domain.",
-        ])
+{attribution_text}
+"""
 
     # Write file
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    output_path.write_text(full_text, encoding="utf-8")
     logger.info(f"Wrote attribution file: {output_path}")
 
 

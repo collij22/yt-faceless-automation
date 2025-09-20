@@ -27,3 +27,8 @@ assets/
 data/
 content/
 reports/
+
+# OAuth credentials
+token.json
+credentials.json
+old_credentials.json

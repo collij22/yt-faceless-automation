@@ -30,9 +30,13 @@ python run_full_production_pipeline_v4.py --model claude   # Comprehensive conte
 python run_full_production_pipeline_v4.py --model haiku    # Concise, viral content
 python run_full_production_pipeline_v4.py --model sonnet   # Balanced (default)
 
-# Legacy commands (DO NOT USE)
-# python run_full_production_pipeline.py    # V1 - has placeholders
-# python run_full_production_pipeline_v3.py # V3 - wrong video lengths
+# Legacy commands (archived)
+# The following legacy pipeline scripts are preserved in `archive/` for reference only:
+# - run_full_production_pipeline.py (V1)
+# - run_full_production_pipeline_v2.py (V2)
+# - run_full_production_pipeline_v3.py (V3)
+# - claude_script_generator.py / _v2.py / _v3.py
+# Do not use these for production; V4 supersedes them.
 
 # Testing
 pytest
@@ -103,6 +107,16 @@ Phase 7 → Monetize (revenue-analyst) → Revenue tracking and expansion
 - **No Placeholders**: All content is unique and specific, no `[insert example]` or `[...]`
 - **Model Support**: Choose between claude (comprehensive), haiku (concise), or sonnet (balanced)
 - **Accurate Timestamps**: END timestamps match actual video duration (e.g., `[END - 6:15]` for 6.25 min video)
+
+### Bulletproof Video Production Features
+- **Resilient API Integration**: Exponential backoff retry logic for all asset API calls
+- **Smart Asset Deduplication**: Perceptual hashing with automatic URL-based fallback
+- **Automatic Fallbacks**: Gradient cards generated when assets unavailable
+- **Perfect Audio Sync**: FFprobe-based duration calculation (not word count estimates)
+- **License Compliance**: LicenseValidator ensures commercial use rights and adds attribution
+- **YouTube Compatibility**: Description length clamping to prevent API errors
+- **Configurable FPS**: Ken Burns effects respect video FPS settings (not hardcoded 30fps)
+- **Correct Transitions**: All FFmpeg xfade transitions properly mapped
 
 ### Word Count Targets
 | Duration | Target Words | Actual Output | Result |

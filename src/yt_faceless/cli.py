@@ -11,6 +11,7 @@ from .core.config import load_config as load_enhanced_config
 from .config import load_config
 from .logging_setup import get_logger, setup_logging
 from .orchestrator import Orchestrator
+from .cli_enhanced_commands import cmd_assets_enhanced, cmd_timeline_enhanced
 
 
 logger = get_logger(__name__)
@@ -1220,21 +1221,45 @@ def main(argv: list[str] | None = None) -> int:
     p_subtitles.add_argument("--format", choices=["srt", "vtt"], default="srt", help="Subtitle format")
     p_subtitles.set_defaults(func=_cmd_subtitles)
 
-    # Assets command
-    p_assets = sub.add_parser("assets", help="Download assets for content")
-    p_assets.add_argument("--slug", required=True, help="Content slug identifier")
-    p_assets.add_argument("--parallel", action="store_true", help="Download in parallel")
-    p_assets.add_argument("--force", action="store_true", help="Force re-download")
-    p_assets.add_argument("--license-filter", nargs="+", default=["CC0", "PD", "CC-BY"],
-                         help="Allowed licenses")
-    p_assets.set_defaults(func=_cmd_assets)
+    # Assets command with subcommands
+    p_assets = sub.add_parser("assets", help="Manage visual assets for content")
+    assets_sub = p_assets.add_subparsers(dest="assets_command", required=True)
 
-    # Timeline command
-    p_timeline = sub.add_parser("timeline", help="Generate or validate timeline")
-    p_timeline.add_argument("--slug", required=True, help="Content slug identifier")
-    p_timeline.add_argument("--auto", action="store_true", help="Auto-generate timeline")
-    p_timeline.add_argument("--validate", action="store_true", help="Validate existing timeline")
-    p_timeline.set_defaults(func=_cmd_timeline)
+    # Assets plan subcommand
+    p_assets_plan = assets_sub.add_parser("plan", help="Plan assets based on script analysis")
+    p_assets_plan.add_argument("--slug", required=True, help="Content slug identifier")
+    p_assets_plan.add_argument("--max-assets", type=int, default=30, help="Maximum assets to plan")
+    p_assets_plan.add_argument("--sources", default="openverse,wikimedia", help="Asset sources (comma-separated)")
+
+    # Assets fetch subcommand
+    p_assets_fetch = assets_sub.add_parser("fetch", help="Download planned assets")
+    p_assets_fetch.add_argument("--slug", required=True, help="Content slug identifier")
+    p_assets_fetch.add_argument("--parallel", action="store_true", help="Download in parallel")
+    p_assets_fetch.add_argument("--force", action="store_true", help="Force re-download")
+
+    p_assets.set_defaults(func=cmd_assets_enhanced)
+
+    # Timeline command with subcommands
+    p_timeline = sub.add_parser("timeline", help="Manage video timeline with visual shots")
+    timeline_sub = p_timeline.add_subparsers(dest="timeline_command", required=True)
+
+    # Timeline auto subcommand
+    p_timeline_auto = timeline_sub.add_parser("auto", help="Auto-generate visual timeline")
+    p_timeline_auto.add_argument("--slug", required=True, help="Content slug identifier")
+    p_timeline_auto.add_argument("--no-analysis", action="store_true", help="Skip scene analysis")
+    p_timeline_auto.add_argument("--no-transitions", action="store_true", help="Disable transitions")
+    p_timeline_auto.add_argument("--no-kenburns", action="store_true", help="Disable Ken Burns effects")
+
+    # Timeline validate subcommand
+    p_timeline_validate = timeline_sub.add_parser("validate", help="Validate existing timeline")
+    p_timeline_validate.add_argument("--slug", required=True, help="Content slug identifier")
+
+    # Timeline preview subcommand
+    p_timeline_preview = timeline_sub.add_parser("preview", help="Preview timeline composition")
+    p_timeline_preview.add_argument("--slug", required=True, help="Content slug identifier")
+    p_timeline_preview.add_argument("--format", choices=["text", "json", "html"], default="text")
+
+    p_timeline.set_defaults(func=cmd_timeline_enhanced)
 
     # Produce command (runs TTS + Assets + Timeline)
     p_produce = sub.add_parser("produce", help="Run complete production pipeline")

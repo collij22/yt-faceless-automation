@@ -51,9 +51,16 @@ Outputs:
 Outputs:
 - `content/{slug}/audio.wav` or `.mp3`, `assets/` with B‑roll lists and downloads, `subtitles.srt` (if generated).
 
-### Phase 5 — Video Assembly
+### Phase 5 — Video Assembly (Bulletproof Production)
 - Python + FFmpeg assembly provided in `yt_faceless.assembly` with CLI `ytfaceless assemble`.
 - Subagent: `video-assembler` orchestrates assembly, transitions, background music, and subtitles.
+- **Bulletproof Features:**
+  - Resilient API calls with exponential backoff retry logic
+  - Smart asset deduplication (perceptual hashing with URL fallback)
+  - Automatic fallback generation for missing assets
+  - FFprobe-based audio duration sync
+  - Configurable FPS for Ken Burns effects
+  - Commercial license validation and attribution
 
 Outputs:
 - Final `content/{slug}/final.mp4` with correct codecs and loudness.
@@ -122,6 +129,11 @@ python run_full_production_pipeline_v4.py --model sonnet   # Balanced (default)
 - ✅ Accurate timestamps matching actual video duration
 - ✅ Model selection for different content styles
 - ✅ Fresh idea generation (no recycling)
+- ✅ Bulletproof video assembly with automatic fallbacks
+- ✅ Smart asset deduplication (perceptual or URL-based)
+- ✅ Commercial license compliance with attribution
+- ✅ YouTube-safe description length limits
+- ✅ Resilient API integration with retry logic
 
 When prompted:
 - Select video length (1/5/10/30 minutes) - script adjusts automatically
@@ -189,15 +201,30 @@ ytfaceless assemble        # Assemble video from clips
 │  ├─ optimizer.md
 │  └─ revenue-analyst.md
 ├─ workflows/
-│  ├─ tts_webhook.json
-│  └─ youtube_upload.json
+│  ├─ tts_webhook_PRODUCTION.json
+│  ├─ youtube_upload_PRODUCTION.json
+│  ├─ youtube_analytics_PRODUCTION.json
+│  ├─ cross_platform_PRODUCTION.json
+│  └─ affiliate_shortener_PRODUCTION.json
 ├─ docs/
 │  └─ mcp-setup.md
+├─ archive/
+│  ├─ run_full_production_pipeline.py
+│  ├─ run_full_production_pipeline_v2.py
+│  ├─ run_full_production_pipeline_v3.py
+│  ├─ claude_script_generator.py
+│  ├─ claude_script_generator_v2.py
+│  ├─ claude_script_generator_v3.py
+│  └─ assorted legacy tests/docs
 ├─ .env.example
 ├─ pyproject.toml
 ├─ README.md
 └─ .gitignore
 ```
+
+### Archived content
+
+Legacy V1–V3 pipelines, generators, and ad‑hoc tests have been moved to `archive/`. They are kept for reference only and should not be used in production. Use `run_full_production_pipeline_v4.py` exclusively.
 
 ---
 
