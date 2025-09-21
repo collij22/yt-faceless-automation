@@ -111,8 +111,28 @@ class SceneAnalyzer:
         Returns:
             List of scene segments
         """
-        # Extract structural markers
+        # Extract structural markers; if none found, synthesize coarse sections from the script
         sections = self._extract_sections(script_text)
+        if not sections:
+            # Create simple sections by splitting the script into paragraphs
+            paras = [p.strip() for p in script_text.split("\n\n") if p.strip()]
+            cur_time = 0.0
+            est_wpm = self.words_per_minute
+            synthesized = []
+            for i, para in enumerate(paras[:12]):  # cap to avoid too many
+                words = len(para.split())
+                dur = max(6.0, min(20.0, (words / est_wpm) * 60))
+                synthesized.append({
+                    "marker": None,
+                    "start_time": cur_time,
+                    "end_time": cur_time + dur,
+                    "text": para,
+                    "visual_cues": [],
+                    "b_roll_suggestions": []
+                })
+                cur_time += dur
+            if synthesized:
+                sections = synthesized
 
         # If we have metadata sections, use those
         if metadata and "sections" in metadata:
@@ -313,18 +333,32 @@ class SceneAnalyzer:
         """
         scenes = []
         scene_index = 0
+        cursor = 0.0
 
         for i, section in enumerate(sections):
             # Calculate section duration
             if "end_time" in section and section["end_time"]:
-                duration = section["end_time"] - section["start_time"]
+                start_time = float(section.get("start_time", 0) or 0)
+                if start_time < cursor:
+                    start_time = cursor
+                duration = float(section["end_time"]) - start_time
             elif i + 1 < len(sections):
-                duration = sections[i + 1]["start_time"] - section["start_time"]
+                next_start = float(sections[i + 1].get("start_time", 0) or 0)
+                start_time = float(section.get("start_time", 0) or 0)
+                if start_time < cursor:
+                    start_time = cursor
+                duration = next_start - start_time
             elif total_duration:
-                duration = total_duration - section["start_time"]
+                start_time = float(section.get("start_time", 0) or 0)
+                if start_time < cursor:
+                    start_time = cursor
+                duration = float(total_duration) - start_time
             else:
                 # Estimate from word count
                 word_count = len(section["text"].split())
+                start_time = float(section.get("start_time", 0) or 0)
+                if start_time < cursor:
+                    start_time = cursor
                 duration = (word_count / self.words_per_minute) * 60
 
             # Determine target scene duration based on marker
@@ -351,8 +385,8 @@ class SceneAnalyzer:
 
                     scene = SceneSegment(
                         index=scene_index,
-                        start_time=section["start_time"] + (j * scene_duration),
-                        end_time=section["start_time"] + ((j + 1) * scene_duration),
+                        start_time=start_time + (j * scene_duration),
+                        end_time=start_time + ((j + 1) * scene_duration),
                         duration=scene_duration,
                         text=scene_text,
                         section_marker=section.get("marker"),
@@ -364,13 +398,20 @@ class SceneAnalyzer:
                     )
                     scenes.append(scene)
                     scene_index += 1
+                cursor = scenes[-1].end_time
             else:
                 # Use section as single scene
+                end_time = start_time + duration
+                # Clamp to bounds
+                if duration < min_dur:
+                    end_time = start_time + min_dur
+                if duration > max_dur:
+                    end_time = start_time + max_dur
                 scene = SceneSegment(
                     index=scene_index,
-                    start_time=section["start_time"],
-                    end_time=section["start_time"] + duration,
-                    duration=duration,
+                    start_time=start_time,
+                    end_time=end_time,
+                    duration=end_time - start_time,
                     text=section["text"],
                     section_marker=section.get("marker"),
                     keywords=[],
@@ -381,6 +422,7 @@ class SceneAnalyzer:
                 )
                 scenes.append(scene)
                 scene_index += 1
+                cursor = scene.end_time
 
         return scenes
 

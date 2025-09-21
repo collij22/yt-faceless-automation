@@ -741,6 +741,22 @@ def infer_timeline_from_script(
         manifest = json.loads(manifest_path.read_text())
         assets = manifest.get("assets", [])
 
+    # If still no assets, generate fallback visuals so scenes always have content
+    if not assets:
+        from .fallbacks import ensure_minimum_assets
+        fallback_list = ensure_minimum_assets([], 12, scene_type=None)
+        assets = [
+            {
+                "type": "image",
+                "url": str(a.path),
+                "local_path": str(a.path),
+                "license": "cc0",
+                "title": a.title,
+                "tags": [],
+            }
+            for a in fallback_list
+        ]
+
     # Get script sections
     sections = metadata.get("sections", [])
     if not sections:
@@ -805,6 +821,48 @@ def infer_timeline_from_script(
                 )
 
             scenes.append(scene)
+
+    # If we still have no scenes (e.g., all downloads failed), synthesize scenes from fallbacks
+    if not scenes:
+        from .fallbacks import ensure_minimum_assets
+        fallback_assets = ensure_minimum_assets([], 12, scene_type=None)
+        # Spread fallbacks over the full narration duration if available
+        total = (content_dir / "audio.wav")
+        total_dur = 0.0
+        if total.exists():
+            try:
+                import subprocess, json as _json
+                r = subprocess.run(['ffprobe','-v','quiet','-print_format','json','-show_format',str(total)], capture_output=True, text=True, timeout=5)
+                if r.returncode == 0:
+                    d = _json.loads(r.stdout)
+                    total_dur = float(d.get('format',{}).get('duration',0))
+            except Exception:
+                pass
+        # Default to 8s per scene if duration unknown
+        per = 8.0 if total_dur <= 0 else max(6.0, min(12.0, total_dur / max(1, len(fallback_assets))))
+        t = 0.0
+        idx = 0
+        while total_dur == 0 or t < total_dur:
+            fa = fallback_assets[idx % len(fallback_assets)]
+            scenes.append({
+                "scene_id": f"fb_{idx}",
+                "clip_path": str(fa.path),
+                "start_time": t,
+                "end_time": t + per,
+                "source_start": 0,
+                "source_end": per,
+                "transition": "fade" if idx > 0 else None,
+                "transition_duration": 0.5,
+                "zoom_pan": None,
+                "overlay_text": None,
+                "overlay_position": None,
+                "audio_duck": False,
+                "effects": []
+            })
+            idx += 1
+            t += per
+            if total_dur == 0 and idx >= len(fallback_assets):
+                break
 
     # Select background music
     music_track = None

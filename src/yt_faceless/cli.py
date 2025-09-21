@@ -289,6 +289,9 @@ def _cmd_produce(args: argparse.Namespace) -> int:
         print(f"Running production pipeline for: {args.slug}")
         print("-" * 50)
 
+        # Ensure script exists (generate if needed)
+        _ensure_script_for_slug(args)
+
         # Generate TTS
         print("\n[1/3] Generating voiceover...")
         args.overwrite = args.overwrite if hasattr(args, 'overwrite') else False
@@ -316,7 +319,7 @@ def _cmd_produce(args: argparse.Namespace) -> int:
 
         print("\n" + "="*50)
         print("✓ Production complete!")
-        print(f"  Ready for assembly: ytfaceless assemble --slug {args.slug}")
+        print(f"  Ready for assembly: ytfaceless assemble-timeline --slug {args.slug}")
 
         return 0
 
@@ -467,6 +470,100 @@ def _cmd_init(args: argparse.Namespace) -> int:
         logger.error(f"Initialization failed: {e}")
         print(f"ERROR: Initialization failed: {e}")
         return 1
+
+
+def _ensure_script_for_slug(args: argparse.Namespace) -> None:
+    """Ensure content/{slug}/script.md and minimal metadata.json exist.
+
+    If missing, generate via V4 generator when model and title are provided,
+    else fall back to the internal ScriptGenerator.
+    """
+    cfg = load_enhanced_config()
+    content_dir = cfg.directories.content_dir / args.slug
+    content_dir.mkdir(parents=True, exist_ok=True)
+    script_path = content_dir / "script.md"
+    metadata_path = content_dir / "metadata.json"
+
+    if script_path.exists() and metadata_path.exists():
+        return
+
+    title = getattr(args, "title", None)
+    # Ensure minimum title length to satisfy schema validation (>= 10 chars)
+    if title and len(title.strip()) < 10:
+        title = f"{title.strip()} tutorial"
+    model = getattr(args, "model", None)
+    minutes = getattr(args, "minutes", 10) or 10
+
+    # Try V4 generator if model and title provided
+    if (not script_path.exists()) and title and model:
+        try:
+            # Dynamically import the V4 generator from repo root
+            import importlib.util
+            from pathlib import Path as _P
+            # Project root is three levels up: src/yt_faceless/cli.py -> yt_faceless -> src -> ROOT
+            # Use parents[2] (not [3]) to avoid escaping the repo root on Windows
+            gen_file = _P(__file__).resolve().parents[2] / "claude_script_generator_v4.py"
+            spec = importlib.util.spec_from_file_location("claude_script_generator_v4", str(gen_file))
+            if spec and spec.loader:
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)  # type: ignore[attr-defined]
+
+                # Map minutes to target words using V4 defaults
+                words_map = {1: 150, 5: 750, 10: 1500, 30: 4500}
+                target_words = words_map.get(minutes, int(150 * minutes))
+                script_text = mod.generate_production_script(
+                    title=title,
+                    hook="",
+                    target_minutes=minutes,
+                    target_words=target_words,
+                    model=model,
+                )
+                script_path.write_text(script_text, encoding="utf-8")
+        except Exception as e:
+            # Fall back silently to internal generator below
+            print(f"[WARN] V4 script generator unavailable ({e}); using internal generator.")
+
+    # Internal generator fallback if script still missing
+    if not script_path.exists():
+        try:
+            from .content.scriptwriter import ScriptGenerator
+            from .core.schemas import (
+                VideoIdea, IdeaScores, IdeaValidation, Keywords, VideoNiche
+            )
+            from uuid import uuid4
+            idea_title = title or f"Auto Script for {args.slug}"
+            niche = getattr(args, "niche", None) or "education"
+            # Build minimal idea
+            scores = IdeaScores(rpm=7.0, trend_velocity=6.5, competition_gap=6.0, virality=6.5, monetization=7.5, composite=6.7)
+            validation = IdeaValidation(youtube_safe=True, copyright_clear=True, trend_sustainable=True, monetization_eligible=True)
+            words = [w for w in idea_title.lower().split() if len(w) > 3]
+            kw = Keywords(primary=words[:2], secondary=words[2:6], long_tail=[])
+            idea = VideoIdea(
+                idea_id=uuid4(),
+                title=idea_title,
+                angle="A practical, engaging and specific exploration of the topic.",
+                niche=VideoNiche(niche) if niche in [n.value for n in VideoNiche] else VideoNiche.EDUCATION,
+                scores=scores,
+                keywords=kw,
+                competitors=[],
+                sources=["internal"],
+                validation=validation,
+            )
+            gen = ScriptGenerator(cfg)
+            gen.generate_script(idea=idea, template=None, target_duration=max(60, minutes * 60))
+        except Exception as e:
+            print(f"ERROR: Internal script generation failed: {e}")
+            raise
+
+    # Ensure minimal metadata exists
+    if not metadata_path.exists():
+        import json
+        meta = {
+            "title": title or args.slug,
+            "language": "en",
+            "tags": (title.lower().split() if title else [args.slug]),
+        }
+        metadata_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
 
 def _cmd_publish(args: argparse.Namespace) -> int:
@@ -1264,6 +1361,11 @@ def main(argv: list[str] | None = None) -> int:
     # Produce command (runs TTS + Assets + Timeline)
     p_produce = sub.add_parser("produce", help="Run complete production pipeline")
     p_produce.add_argument("--slug", required=True, help="Content slug identifier")
+    # Optional generation controls (hybrid V4 + visuals)
+    p_produce.add_argument("--model", choices=["claude", "haiku", "sonnet"], help="V4 model for script gen (optional)")
+    p_produce.add_argument("--title", help="Video title for script generation (optional)")
+    p_produce.add_argument("--minutes", type=int, default=10, help="Target duration in minutes (default 10)")
+    p_produce.add_argument("--niche", help="Optional niche for internal generator (e.g., finance, education)")
     p_produce.add_argument("--parallel", action="store_true", help="Parallel processing")
     p_produce.add_argument("--overwrite", action="store_true", help="Overwrite existing files")
     p_produce.set_defaults(func=_cmd_produce)

@@ -30,6 +30,8 @@ class AssetEntry(TypedDict):
     """Individual asset metadata."""
     type: Literal["video", "image", "music", "sfx"]
     url: str
+    # Optional alternate thumbnail URL (used if direct URL is blocked)
+    thumbnail_url: Optional[str]
     local_path: str
     sha256: str
     license: str
@@ -106,9 +108,11 @@ class AssetManager:
 
         # Search via different sources
         if asset_type == "image":
-            # Use free sources first
-            assets.extend(self._search_openverse(query, license_filter, max_results))
+            # Prefer Wikimedia first (more permissive with thumbnails), then Openverse
             assets.extend(self._search_wikimedia(query, license_filter, max_results))
+            if len(assets) < max_results:
+                remaining = max_results - len(assets)
+                assets.extend(self._search_openverse(query, license_filter, remaining))
 
             # Optional paid sources (if API keys configured)
             if os.getenv("PEXELS_API_KEY"):
@@ -465,31 +469,62 @@ async def _download_single_asset(
                 asset["local_path"] = str(local_path)
                 return asset
 
-    # Download via n8n webhook if configured
+    # Download via n8n webhook if configured; fall back to direct/thumbnail on failure
+    used_webhook = False
     if cfg.webhooks.asset_url:
-        n8n_client = N8NClient(cfg)
-        response = n8n_client.trigger_asset_webhook(
-            asset_urls=[asset["url"]],
-            destination_dir=str(local_path.parent),
-            parallel=False
-        )
+        try:
+            n8n_client = N8NClient(cfg)
+            response = n8n_client.trigger_asset_webhook(
+                asset_urls=[asset["url"]],
+                destination_dir=str(local_path.parent),
+                parallel=False
+            )
 
-        if response.get("success"):
-            downloaded_paths = response.get("paths", [])
-            if downloaded_paths:
-                # Move to expected location
-                downloaded = Path(downloaded_paths[0])
-                if downloaded != local_path:
-                    shutil.move(str(downloaded), str(local_path))
-        else:
-            raise AssetError(f"Asset download failed: {response.get('error')}")
-    else:
+            if response.get("success"):
+                downloaded_paths = response.get("paths", [])
+                if downloaded_paths:
+                    # Move to expected location
+                    downloaded = Path(downloaded_paths[0])
+                    if downloaded != local_path:
+                        shutil.move(str(downloaded), str(local_path))
+                used_webhook = True
+            else:
+                logger.warning(f"Asset webhook reported failure, falling back to direct download: {response.get('error')}")
+        except Exception as e:
+            logger.warning(f"Asset webhook failed ({e}), falling back to direct download")
+
+    if not used_webhook:
         # Direct download
         try:
-            urlretrieve(asset["url"], local_path)
+            # Use urllib with headers for Commons (avoid hotlink 403)
+            from urllib.request import Request, urlopen
+            req = Request(asset["url"], headers={
+                "User-Agent": "YT-Faceless/1.0 (+https://example.com/contact)",
+                "Accept": "*/*",
+                # Add Referer to reduce Commons hotlinking blocks when possible
+                "Referer": asset.get("source_url", "https://commons.wikimedia.org/") or "https://commons.wikimedia.org/",
+            })
+            with urlopen(req, timeout=15) as resp, open(local_path, "wb") as out:
+                out.write(resp.read())
         except Exception as e:
-            logger.error(f"Failed to download {asset['url']}: {e}")
-            raise AssetError(f"Download failed: {e}")
+            logger.warning(f"Direct download failed {asset['url']}: {e}")
+            # Try thumbnail_url if available (Wikimedia/API often allow thumb when full blocked)
+            thumb = asset.get("thumbnail_url") or asset.get("thumbnail")
+            if thumb:
+                try:
+                    from urllib.request import Request, urlopen
+                    req = Request(thumb, headers={
+                        "User-Agent": "YT-Faceless/1.0 (+https://example.com/contact)",
+                        "Accept": "*/*",
+                        "Referer": asset.get("source_url", "https://commons.wikimedia.org/") or "https://commons.wikimedia.org/",
+                    })
+                    with urlopen(req, timeout=15) as resp, open(local_path, "wb") as out:
+                        out.write(resp.read())
+                except Exception as e2:
+                    logger.error(f"Failed to download thumbnail {thumb}: {e2}")
+                    raise AssetError(f"Download failed: {e2}")
+            else:
+                raise AssetError(f"Download failed: {e}")
 
     # Calculate SHA256
     asset["sha256"] = _calculate_file_hash(local_path)

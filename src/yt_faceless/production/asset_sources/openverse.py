@@ -61,16 +61,19 @@ class OpenverseSource(AssetSource):
         # Rate limiting
         self._rate_limit()
 
-        # Build query parameters
+        # Sanitize query (min length, ascii/space only)
+        q = " ".join([w for w in query.strip().split() if w.isalpha() and len(w) >= 3])
+        if len(q) < 3:
+            logger.debug("Openverse: query too short after sanitization; returning empty")
+            return []
+
+        # Build query parameters (avoid unstable/unsupported flags)
         params = {
-            "q": query,
-            "page_size": limit,
+            "q": q,
+            "page_size": min(limit, 20),
             "page": page,
             "mature": "false",
-            # Filter for CC licenses only (excludes copyrighted content)
             "license_type": "commercial,modification",
-            # Request additional fields
-            "unstable__include_sensitive_results": "false",
         }
 
         # Add resolution filter if specified
@@ -87,11 +90,12 @@ class OpenverseSource(AssetSource):
                 # Make API request
                 url = f"{self.BASE_URL}/images/?{urlencode(params)}"
                 request = Request(url)
-                request.add_header("User-Agent", "YT-Faceless-Automation/1.0")
+                for k, v in self.http_headers.items():
+                    request.add_header(k, v)
 
                 logger.debug(f"Searching Openverse: {query} (page {page}, attempt {attempt + 1}/{max_retries})")
 
-                with urlopen(request, timeout=30) as response:
+                with urlopen(request, timeout=10) as response:
                     if response.status == 200:
                         import json
                         data = json.loads(response.read().decode("utf-8"))
@@ -117,6 +121,18 @@ class OpenverseSource(AssetSource):
                         return []
 
             except (HTTPError, URLError) as e:
+                # Treat client errors as non-retryable to avoid long stalls
+                code = getattr(e, 'code', None)
+                if code in {400, 401, 403, 404}:
+                    logger.warning(f"Openverse non-retryable error {code}: {e}")
+                    return []
+                # For 429, back off using Retry-After if present, else short delay
+                if code == 429 and attempt < 1:
+                    retry_after = getattr(e, 'headers', {}).get('Retry-After', None) if hasattr(e, 'headers') else None
+                    delay = float(retry_after) if retry_after else 2.0
+                    logger.warning(f"Openverse rate limited (429). Retrying in {delay:.1f}s")
+                    time.sleep(delay)
+                    continue
                 logger.warning(f"Openverse request error: {e} (attempt {attempt + 1}/{max_retries})")
                 if attempt < max_retries - 1:
                     # Exponential backoff

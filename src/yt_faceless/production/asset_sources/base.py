@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 from abc import ABC, abstractmethod
+import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -70,6 +71,11 @@ class AssetSource(ABC):
         self.cache_dir = cache_dir or Path(".cache/assets")
         self.cache_ttl = timedelta(days=cache_ttl_days)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        contact = os.getenv("APP_CONTACT_URL", "https://example.com/contact")
+        self.http_headers = {
+            "User-Agent": f"YT-Faceless/1.0 (+{contact})",
+            "Accept": "application/json",
+        }
 
     @abstractmethod
     def search(

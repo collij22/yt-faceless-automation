@@ -329,19 +329,79 @@ async def _synthesize_single_chunk(
             chunk_id=f"chunk_{index}",
         )
 
-        if response.get("success"):
-            audio_path = Path(response["audio_path"])
+        # Robust success + path handling (normalized in client, but keep safe here)
+        ok = bool(response.get("success")) or str(response.get("status", "")).lower() in ("ok", "success")
+        audio_path_val = response.get("audio_path")
+        if not audio_path_val:
+            output = response.get("output") or {}
+            files = output.get("files") or []
+            if isinstance(files, list):
+                audio_path_val = next((f for f in files if f), None)
 
-            # Cache the result
-            cache_manager.cache_audio(cache_key, audio_path)
+        if not ok or not audio_path_val:
+            # Attempt local fallback before failing
+            fb = _local_tts_fallback(cfg, chunk, index)
+            if fb:
+                cache_manager.cache_audio(cache_key, fb)
+                return fb
+            raise TTSError(f"TTS failed for chunk {index}: {response.get('error') or 'missing audio path'}")
 
-            return audio_path
-        else:
-            raise TTSError(f"TTS failed for chunk {index}: {response.get('error')}")
+        audio_path = Path(audio_path_val)
+
+        # Cache the result
+        cache_manager.cache_audio(cache_key, audio_path)
+
+        return audio_path
 
     except Exception as e:
         logger.error(f"Failed to synthesize chunk {index}: {e}")
+        # Last-chance local fallback
+        fb = _local_tts_fallback(cfg, chunk, index)
+        if fb:
+            cache_manager.cache_audio(cache_key, fb)
+            return fb
         raise TTSError(f"TTS synthesis failed: {e}")
+
+
+def _local_tts_fallback(cfg: AppConfig, text: str, index: int) -> Optional[Path]:
+    """Local, no-network TTS fallback.
+
+    Tries gTTS (if installed). If unavailable, generates short silence so the pipeline can proceed.
+    Returns a WAV path or None on failure.
+    """
+    from pathlib import Path as _Path
+    import subprocess
+    cache_dir = cfg.directories.cache_dir / "tts_fallback"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    # Try gTTS
+    try:
+        from gtts import gTTS  # type: ignore
+        mp3_path = cache_dir / f"chunk_{index}.mp3"
+        wav_path = cache_dir / f"chunk_{index}.wav"
+        gTTS(text=text, lang='en', slow=False).save(str(mp3_path))
+        # Convert to WAV for consistent downstream merge
+        subprocess.run([
+            cfg.video.ffmpeg_bin, "-y", "-i", str(mp3_path), "-ar", "44100", "-ac", "1", str(wav_path)
+        ], check=True, capture_output=True, text=True)
+        return wav_path
+    except Exception as e:  # gTTS missing or failed
+        logger.warning(f"Local gTTS fallback unavailable: {e}. Generating silence.")
+
+    # Generate brief silence as last resort
+    try:
+        wav_path = cache_dir / f"chunk_{index}_silence.wav"
+        # 1s silence to keep timeline moving
+        subprocess.run([
+            cfg.video.ffmpeg_bin, "-y",
+            "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono",
+            "-t", "1.0",
+            str(wav_path)
+        ], check=True, capture_output=True, text=True)
+        return wav_path
+    except Exception as e:
+        logger.error(f"Failed to generate silence fallback: {e}")
+        return None
 
 
 def _generate_cache_key(

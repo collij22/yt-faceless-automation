@@ -682,7 +682,32 @@ In this video, we explore {title.lower()} with evidence-based insights and pract
             video_path = self.phase5_video_assembly(audio_path, duration)
 
             if video_path:
-                # Phase 6: Upload
+                # Enhance visuals BEFORE any upload
+                try:
+                    import sys as _sys
+                    import subprocess as _sub
+                    enhancer = [
+                        _sys.executable,
+                        "scripts/enhance_v4_visuals.py",
+                        "--slug",
+                        self.session_id,
+                        "--parallel",
+                        "--burn-subtitles",
+                    ]
+                    print("\n[INFO] Enhancing visuals with timeline-based assembly...")
+                    # Prevent indefinite hang: 6-minute timeout for visual enhancement
+                    _sub.run(enhancer, check=True, timeout=360)
+                    # Update video_path to the enhanced output
+                    enhanced_path = self.output_dir / "final.mp4"
+                    if enhanced_path.exists():
+                        video_path = enhanced_path
+                        print(f"[SUCCESS] Enhanced video ready: {video_path}")
+                    else:
+                        print("[WARNING] Enhanced output not found; falling back to basic video")
+                except Exception as _e:
+                    print(f"[WARNING] Visual enhancement failed: {_e}. Proceeding with basic video.")
+
+                # Phase 6: Upload (after enhancement)
                 self.phase6_upload(video_path, metadata)
 
         # Phase 7: Analytics

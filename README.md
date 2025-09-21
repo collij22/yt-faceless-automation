@@ -52,14 +52,17 @@ Outputs:
 - `content/{slug}/audio.wav` or `.mp3`, `assets/` with B‑roll lists and downloads, `subtitles.srt` (if generated).
 
 ### Phase 5 — Video Assembly (Bulletproof Production)
-- Python + FFmpeg assembly provided in `yt_faceless.assembly` with CLI `ytfaceless assemble`.
+- Python + FFmpeg assembly provided in `yt_faceless.assembly` with CLI `ytfaceless assemble-timeline`.
 - Subagent: `video-assembler` orchestrates assembly, transitions, background music, and subtitles.
-- **Bulletproof Features:**
-  - Resilient API calls with exponential backoff retry logic
+- **Bulletproof Features (V4 visuals):**
+  - Openverse/Wikimedia compliant client:
+    - Query sanitization; polite `User-Agent` with contact; Accept JSON; Commons downloads with `Referer`
+    - 400/401/403/404 treated as non‑retry; 429 respects Retry‑After; per‑host concurrency and delays
+    - Thumbnail‑first downloads for Commons; headered direct downloads with validation
   - Smart asset deduplication (perceptual hashing with URL fallback)
-  - Automatic fallback generation for missing assets
-  - FFprobe-based audio duration sync
-  - Configurable FPS for Ken Burns effects
+  - Automatic fallback gradient cards for scenes with no assets (pre‑generated pool)
+  - FFprobe‑based audio duration sync and robust scene segmentation (monotonic timings)
+  - Ken Burns on images and still‑frame holds (fps + tpad) for entire scene duration
   - Commercial license validation and attribution
 
 Outputs:
@@ -109,7 +112,7 @@ pip install -e .[dev]
 copy .env.example .env    # Edit with your API keys
 ```
 
-### Usage - Production Pipeline V4
+### Usage — Production Pipeline V4 + Visual Enhancer
 
 The latest V4 pipeline generates properly sized videos with dynamic content:
 
@@ -129,7 +132,7 @@ python run_full_production_pipeline_v4.py --model sonnet   # Balanced (default)
 - ✅ Accurate timestamps matching actual video duration
 - ✅ Model selection for different content styles
 - ✅ Fresh idea generation (no recycling)
-- ✅ Bulletproof video assembly with automatic fallbacks
+- ✅ Bulletproof video assembly with automatic fallbacks and still‑image hold
 - ✅ Smart asset deduplication (perceptual or URL-based)
 - ✅ Commercial license compliance with attribution
 - ✅ YouTube-safe description length limits
@@ -172,7 +175,17 @@ ytfaceless health --json   # Get JSON output
 ytfaceless --help          # Show all commands
 ytfaceless init            # Initialize project
 ytfaceless health          # Run health check
-ytfaceless assemble        # Assemble video from clips
+ytfaceless assemble-timeline   # Assemble video from visual timeline
+
+### Visual Enhancer (post‑V4)
+After `run_full_production_pipeline_v4.py` generates audio, the enhancer attaches visuals:
+```
+.venv\Scripts\python.exe scripts\enhance_v4_visuals.py --slug YOUR_SLUG --parallel --burn-subtitles
+```
+The enhancer will:
+- Plan/fetch assets (Openverse/Wikimedia) with compliant headers and backoff
+- Generate a robust visual timeline; if APIs fail, synthesize a minimal fallback timeline
+- Assemble the final video with Ken Burns and steady per‑scene still holds
 ```
 
 ---

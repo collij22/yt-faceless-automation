@@ -128,6 +128,25 @@ class FiltergraphBuilder:
         self.filters.append(filter_str)
         return output_label
 
+    def ensure_still_duration(
+        self,
+        input_label: str,
+        duration_seconds: float,
+        fps: int
+    ) -> str:
+        """For still images, hold the last frame to match desired duration.
+
+        Applies fps and tpad stop_mode=clone to create a stream of the given length.
+        """
+        output_label = f"[still_{len(self.filters)}]"
+        # Ensure positive duration
+        dur = max(0.1, float(duration_seconds))
+        filter_str = (
+            f"{input_label}fps={fps},tpad=stop_mode=clone:stop_duration={dur}{output_label}"
+        )
+        self.filters.append(filter_str)
+        return output_label
+
     def add_text_overlay(
         self,
         input_label: str,
@@ -344,13 +363,19 @@ def build_filtergraph(
     input_files = []
     input_map = {}  # Map file path to input index
 
+    # Helper to resolve clip paths that may be project-relative (e.g., .cache/fallbacks/*.png)
+    def _resolve_clip(path_str: str) -> Path:
+        p = Path(path_str)
+        if p.is_absolute():
+            return p
+        if p.exists():
+            return p
+        candidate = cfg.directories.assets_dir / timeline["slug"] / p
+        return candidate if candidate.exists() else p
+
     # Add scene clips
     for scene in timeline["scenes"]:
-        clip_path = Path(scene["clip_path"])
-        if not clip_path.is_absolute():
-            # Try relative paths
-            clip_path = cfg.directories.assets_dir / timeline["slug"] / scene["clip_path"]
-
+        clip_path = _resolve_clip(scene["clip_path"])  # type: ignore[arg-type]
         if str(clip_path) not in input_map:
             input_map[str(clip_path)] = len(input_files)
             input_files.append(str(clip_path))
@@ -372,15 +397,14 @@ def build_filtergraph(
     scene_outputs = []
 
     for i, scene in enumerate(timeline["scenes"]):
-        clip_path = Path(scene["clip_path"])
-        if not clip_path.is_absolute():
-            clip_path = cfg.directories.assets_dir / timeline["slug"] / scene["clip_path"]
-
+        clip_path = _resolve_clip(scene["clip_path"])  # type: ignore[arg-type]
         input_idx = input_map[str(clip_path)]
         video_label = f"[{input_idx}:v]"
 
-        # Trim if needed
-        if scene["source_start"] > 0 or scene["source_end"] < scene["end_time"] - scene["start_time"]:
+        # Trim if needed (for videos); for still images, we'll hold duration below
+        is_image = str(clip_path).lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"))
+        scene_len = scene["end_time"] - scene["start_time"]
+        if not is_image and (scene["source_start"] > 0 or scene["source_end"] < scene_len):
             trim_label = f"[trim_{i}]"
             trim_filter = (
                 f"{video_label}trim=start={scene['source_start']}:"
@@ -412,6 +436,10 @@ def build_filtergraph(
                 timeline["width"],
                 timeline["height"]
             )
+
+        # For images, ensure the visual holds for the full scene duration
+        if is_image:
+            video_label = builder.ensure_still_duration(video_label, scene_len, timeline["fps"])
 
         # Add text overlay if specified
         if scene.get("overlay_text"):

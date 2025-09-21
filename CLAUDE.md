@@ -109,13 +109,14 @@ Phase 7 → Monetize (revenue-analyst) → Revenue tracking and expansion
 - **Accurate Timestamps**: END timestamps match actual video duration (e.g., `[END - 6:15]` for 6.25 min video)
 
 ### Bulletproof Video Production Features
-- **Resilient API Integration**: Exponential backoff retry logic for all asset API calls
+- **Openverse/Wikimedia Compliant Clients**: Query sanitization, polite `User-Agent` (+ contact), Accept JSON; Commons downloads use `Referer`; 400/401/403/404 non‑retry; 429 honors Retry‑After; per‑host concurrency and delays
+- **Thumbnail‑First Downloads**: Prefer `thumburl` for Commons to avoid hotlink 403s; headered direct downloads with validation
 - **Smart Asset Deduplication**: Perceptual hashing with automatic URL-based fallback
-- **Automatic Fallbacks**: Gradient cards generated when assets unavailable
+- **Automatic Fallbacks**: Gradient cards generated and injected per scene when assets unavailable
 - **Perfect Audio Sync**: FFprobe-based duration calculation (not word count estimates)
 - **License Compliance**: LicenseValidator ensures commercial use rights and adds attribution
 - **YouTube Compatibility**: Description length clamping to prevent API errors
-- **Configurable FPS**: Ken Burns effects respect video FPS settings (not hardcoded 30fps)
+- **Configurable FPS + Stills Hold**: Ken Burns respects FPS; still images are held for full scene duration via fps+tpad
 - **Correct Transitions**: All FFmpeg xfade transitions properly mapped
 
 ### Word Count Targets
@@ -131,12 +132,15 @@ Phase 7 → Monetize (revenue-analyst) → Revenue tracking and expansion
 - **Context-Aware**: Uses current date, trends, and niche-specific angles
 - **Model-Specific**: Different idea styles based on selected model
 
-### Usage Examples
+### Usage Examples (V4 + Visual Enhancer)
 ```bash
 # Generate a 5-minute educational video
 python run_full_production_pipeline_v4.py
 # Select: Educational Content → Choose idea → Video length: 2 (5 minutes)
 # Result: ~800 word script, ~6 minute video
+
+# Enhance visuals (if not auto-run by V4 hook)
+.venv\Scripts\python.exe scripts\enhance_v4_visuals.py --slug YOUR_SLUG --parallel --burn-subtitles
 
 # Generate a 10-minute finance video with comprehensive content
 python run_full_production_pipeline_v4.py --model claude

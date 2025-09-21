@@ -525,28 +525,79 @@ class N8NClient:
         text: str,
         **kwargs
     ) -> Dict[str, Any]:
-        """Async version of TTS webhook trigger."""
-        if not self.session:
-            self.session = aiohttp.ClientSession()
-        
+        """Async version of TTS webhook trigger with robust success mapping.
+
+        Accepts either {"success": true, "audio_path": ...} or
+        {"status": "success", "output": {"files": [path, ...]}} structures.
+        """
+        import aiohttp
+        import os
+        from pathlib import Path as _P
+
         payload = {
             "text": text,
             "voice_id": kwargs.get("voice_id") or self._get_default_voice_id(),
             "model": kwargs.get("model") or self._get_default_tts_model(),
             **kwargs
         }
-        
-        async with self.session.post(
-            self.webhooks.tts_url,
-            json=payload,
-            timeout=aiohttp.ClientTimeout(total=60)
-        ) as response:
-            data = await response.json()
-            
-            if not data.get("success"):
-                raise N8NWebhookError(f"Async TTS failed: {data.get('error')}")
-            
-            return data
+
+        timeout = aiohttp.ClientTimeout(total=60)
+        async with aiohttp.ClientSession() as session:
+            async with session.post(self.webhooks.tts_url, json=payload, timeout=timeout) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+
+        # Normalize success detection
+        ok = bool(data.get("success")) or str(data.get("status", "")).lower() in ("ok", "success")
+
+        # Normalize audio path/url extraction
+        def _first_nonempty(value):
+            if isinstance(value, list):
+                for v in value:
+                    if v:
+                        return v
+            return value if value else None
+
+        audio_path = data.get("audio_path")
+        if not audio_path:
+            # Look for common keys in nested output
+            output = data.get("output") or {}
+            files = output.get("files") or []
+            file_single = output.get("file")
+            url_candidates = [
+                data.get("audio_url"),
+                data.get("url"),
+                output.get("audio_url"),
+                output.get("url"),
+            ]
+            candidate = _first_nonempty(files) or file_single or _first_nonempty(url_candidates)
+            if candidate:
+                audio_path = str(candidate)
+                data["audio_path"] = audio_path
+
+        # If we got a URL (http/https), download it to cache and return a local path
+        if audio_path and isinstance(audio_path, str) and audio_path.lower().startswith(("http://", "https://")):
+            cache_dir = self.config.directories.cache_dir / "tts_webhook"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            # Derive filename from chunk_id or hash of URL
+            chunk_id = payload.get("chunk_id") or str(int(time.time()*1000))
+            # Try to preserve extension from URL
+            ext = os.path.splitext(audio_path.split("?")[0])[1] or ".wav"
+            dl_path = cache_dir / f"{chunk_id}{ext}"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(audio_path, timeout=timeout) as r2:
+                    r2.raise_for_status()
+                    with open(dl_path, "wb") as f:
+                        f.write(await r2.read())
+            data["audio_path"] = str(dl_path)
+            audio_path = str(dl_path)
+
+        if not ok or not audio_path:
+            # Provide clearer error for upstream fallback
+            err_msg = data.get("error") or "No audio_path returned by webhook"
+            raise N8NWebhookError(f"Async TTS failed: {err_msg}")
+
+        return data
     
     async def batch_tts_generation(
         self,
